@@ -1,0 +1,5 @@
+.sprintster/
+node_modules/
+dist/
+examples/
+*.tsbuildinfo

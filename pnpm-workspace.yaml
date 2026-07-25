@@ -1,0 +1,8 @@
+packages:
+  - 'packages/*'
+autoInstallPeers: false
+allowBuilds:
+  esbuild: true
+  better-sqlite3: true
+overrides:
+  sprintster: 'link:../sprintster/packages/sprintster'
