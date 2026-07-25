@@ -4,5 +4,6 @@ autoInstallPeers: false
 allowBuilds:
   esbuild: true
   better-sqlite3: true
+  sharp: false
 overrides:
   sprintster: 'link:../sprintster/packages/sprintster'

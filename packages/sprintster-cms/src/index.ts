@@ -1,6 +1,9 @@
 import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
+export * from './config.js';
+export * from './daemon.js';
+
 export interface EnvPaths {
   db?: string;
   blobs?: string;

@@ -21,5 +21,12 @@
     "sprintster-cms": "workspace:*",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "eta": "^4.6.0",
+    "markdown-it": "^14.3.0",
+    "sharp": "^0.34.5",
+    "shiki": "^3.23.0",
+    "zod": "^4.4.3"
   }
 }

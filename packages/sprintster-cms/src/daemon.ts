@@ -1,0 +1,111 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { createApiClient, ObjectConfig } from 'sprintster';
+import { z } from 'zod';
+
+export const PROJECT_CONFIG_FILE = 'sprintster.config.json';
+
+const HEALTH_TIMEOUT_MS = 3000;
+const UNROUTABLE_HOSTS = new Set(['0.0.0.0', '::', '[::]']);
+
+export type Fetch = typeof globalThis.fetch;
+
+export interface Row {
+  id: string;
+  [key: string]: unknown;
+}
+
+export interface Asset {
+  bytes: Uint8Array;
+  contentType: string;
+}
+
+export interface Daemon {
+  baseUrl: string;
+  objects: readonly ObjectConfig[];
+  object(name: string): ObjectConfig;
+  rows(objectName: string): Promise<Row[]>;
+  asset(hash: string): Promise<Asset>;
+}
+
+export interface ConnectOptions {
+  root?: string;
+  env?: string;
+  baseUrl?: string;
+  fetch?: Fetch;
+}
+
+const ServerBlock = z.object({
+  host: z.string().default('127.0.0.1'),
+  port: z.number().int().positive().default(3030),
+});
+
+const ConfigResponse = z.object({ objects: z.array(ObjectConfig).min(1) });
+
+export function resolveDaemonUrl(root: string = process.cwd(), env = 'dev'): string {
+  const path = join(root, PROJECT_CONFIG_FILE);
+  if (!existsSync(path)) {
+    throw new Error(`no ${PROJECT_CONFIG_FILE} in ${root}; run scms from a sprintster project`);
+  }
+  const raw: unknown = JSON.parse(readFileSync(path, 'utf8'));
+  const environments = z.record(z.string(), z.unknown()).parse(
+    (raw as { environments?: unknown }).environments ?? {},
+  );
+  const environment = environments[env];
+  if (environment === undefined) {
+    throw new Error(`unknown environment '${env}' (have: ${Object.keys(environments).join(', ')})`);
+  }
+  const server = ServerBlock.parse((environment as { server?: unknown }).server ?? {});
+  const host = UNROUTABLE_HOSTS.has(server.host) ? '127.0.0.1' : server.host;
+  return `http://${host}:${server.port}`;
+}
+
+async function requireHealthy(baseUrl: string, fetchImpl: Fetch): Promise<void> {
+  try {
+    const res = await fetchImpl(`${baseUrl}/health`, { signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS) });
+    if (!res.ok) throw new Error(`status ${res.status}`);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `no sprintster daemon at ${baseUrl} (${reason}).\nStart it first:\n\n  s8r daemon\n`,
+    );
+  }
+}
+
+export async function connectDaemon(opts: ConnectOptions = {}): Promise<Daemon> {
+  const fetchImpl = opts.fetch ?? globalThis.fetch;
+  const baseUrl = opts.baseUrl ?? resolveDaemonUrl(opts.root, opts.env);
+  await requireHealthy(baseUrl, fetchImpl);
+
+  const res = await fetchImpl(`${baseUrl}/config`);
+  if (!res.ok) throw new Error(`GET ${baseUrl}/config failed with status ${res.status}`);
+  const { objects } = ConfigResponse.parse(await res.json());
+  const byName = new Map(objects.map((o) => [o.name, o]));
+  const client = createApiClient(baseUrl, { objects, fetch: fetchImpl });
+
+  const object = (name: string): ObjectConfig => {
+    const found = byName.get(name);
+    if (found === undefined) {
+      throw new Error(`the daemon serves no object '${name}' (has: ${[...byName.keys()].join(', ')})`);
+    }
+    return found;
+  };
+
+  return {
+    baseUrl,
+    objects,
+    object,
+    rows: async (objectName) => {
+      object(objectName);
+      return client.object<Row>(objectName).list();
+    },
+    asset: async (hash) => {
+      const assetRes = await fetchImpl(`${baseUrl}/assets/${hash}`);
+      if (!assetRes.ok) throw new Error(`GET ${baseUrl}/assets/${hash} failed with status ${assetRes.status}`);
+      return {
+        bytes: new Uint8Array(await assetRes.arrayBuffer()),
+        contentType: assetRes.headers.get('content-type') ?? 'application/octet-stream',
+      };
+    },
+  };
+}
