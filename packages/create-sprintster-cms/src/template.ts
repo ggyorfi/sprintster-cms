@@ -9,7 +9,9 @@ export interface CmsObject {
   name: string;
   title: string;
   titlePlural: string;
-  lifecycle: unknown;
+  route: string;
+  lifecycle?: unknown;
+  singleton?: boolean;
   properties: Property[];
   lists: unknown[];
   views: unknown[];
@@ -26,19 +28,20 @@ const pageObject = {
   name: 'page',
   title: 'Page',
   titlePlural: 'Pages',
+  route: 'pages',
   lifecycle: { softDelete: 'removed' },
   properties: [
     { name: 'id', type: 'id', strategy: 'uuid', system: true },
     { name: 'status', title: 'Status', type: 'enum', values: ['draft', 'published'], default: 'draft' },
     { name: 'title', title: 'Title', type: 'text', validation: { required: true, minLength: 1, maxLength: 200 } },
     { name: 'slug', title: 'Slug', type: 'text', validation: { required: true, maxLength: 200, unique: true, caseInsensitive: true } },
-    { name: 'body', title: 'Body', type: 'markdown', editor: 'combo' },
+    { name: 'body', title: 'Body', type: 'markdown', editor: 'combo', images: true },
     { name: 'parent', title: 'Parent', type: 'ref', target: 'page', display: 'title', nullable: true },
     { name: 'order', title: 'Order', type: 'integer', nullable: true },
     { name: 'publishedAt', title: 'Published at', type: 'datetime', nullable: true },
     { name: 'seoTitle', title: 'SEO title', type: 'text', nullable: true },
     { name: 'seoDescription', title: 'SEO description', type: 'text', nullable: true },
-    { name: 'ogImage', title: 'OG image', type: 'image', nullable: true },
+    { name: 'ogImage', title: 'OG image', type: 'ref', target: 'asset', display: 'title', nullable: true },
     { name: 'removed', type: 'boolean', system: true },
   ],
   lists: [
@@ -86,6 +89,7 @@ const postObject = {
   name: 'post',
   title: 'Post',
   titlePlural: 'Posts',
+  route: 'posts',
   lifecycle: { softDelete: 'removed' },
   properties: [
     { name: 'id', type: 'id', strategy: 'uuid', system: true },
@@ -93,8 +97,8 @@ const postObject = {
     { name: 'title', title: 'Title', type: 'text', validation: { required: true, minLength: 1, maxLength: 200 } },
     { name: 'slug', title: 'Slug', type: 'text', validation: { required: true, maxLength: 200, unique: true, caseInsensitive: true } },
     { name: 'excerpt', title: 'Excerpt', type: 'text', nullable: true, validation: { maxLength: 500 } },
-    { name: 'body', title: 'Body', type: 'markdown', editor: 'combo' },
-    { name: 'cover', title: 'Cover image', type: 'image', nullable: true },
+    { name: 'body', title: 'Body', type: 'markdown', editor: 'combo', images: true },
+    { name: 'cover', title: 'Cover image', type: 'ref', target: 'asset', display: 'title', nullable: true },
     { name: 'category', title: 'Category', type: 'ref', target: 'category', display: 'name', nullable: true },
     { name: 'tags', title: 'Tags', type: 'refs', target: 'tag', display: 'name' },
     { name: 'publishedAt', title: 'Published at', type: 'datetime', nullable: true },
@@ -138,6 +142,7 @@ const categoryObject = {
   name: 'category',
   title: 'Category',
   titlePlural: 'Categories',
+  route: 'categories',
   lifecycle: { softDelete: 'removed' },
   properties: [
     { name: 'id', type: 'id', strategy: 'uuid', system: true },
@@ -175,6 +180,7 @@ const tagObject = {
   name: 'tag',
   title: 'Tag',
   titlePlural: 'Tags',
+  route: 'tags',
   lifecycle: { softDelete: 'removed' },
   properties: [
     { name: 'id', type: 'id', strategy: 'uuid', system: true },
@@ -206,10 +212,58 @@ const tagObject = {
   ],
 };
 
+// 'Media', not 'Assets': the daemon reserves the 'assets' route, and only 'file' may be an image property.
+const assetObject = {
+  name: 'asset',
+  title: 'Asset',
+  titlePlural: 'Media',
+  route: 'media',
+  lifecycle: { softDelete: 'removed' },
+  properties: [
+    { name: 'id', type: 'id', strategy: 'uuid', system: true },
+    { name: 'file', title: 'File', type: 'image', validation: { required: true } },
+    { name: 'title', title: 'Title', type: 'text', nullable: true, validation: { maxLength: 200 } },
+    { name: 'caption', title: 'Caption', type: 'text', nullable: true, validation: { maxLength: 500 } },
+    { name: 'credit', title: 'Credit', type: 'text', nullable: true, validation: { maxLength: 200 } },
+    { name: 'licence', title: 'Licence', type: 'text', nullable: true, validation: { maxLength: 200 } },
+    { name: 'removed', type: 'boolean', system: true },
+  ],
+  lists: [
+    {
+      name: 'default',
+      title: 'Media',
+      columns: [
+        { property: 'title', label: 'Title', width: 34 },
+        { property: 'credit', label: 'Credit', width: 24 },
+        { property: 'licence', label: 'Licence', width: 20 },
+      ],
+      search: { fields: ['title', 'caption', 'credit'], idPrefix: true },
+      actions: standardActions,
+    },
+  ],
+  views: [
+    {
+      name: 'default',
+      title: 'Asset',
+      fields: [
+        { property: 'file' },
+        { property: 'title', placeholder: 'e.g. Harbour at dawn' },
+        { property: 'caption', rows: 2 },
+        {
+          kind: 'fieldset',
+          title: 'Rights',
+          fields: [{ property: 'credit' }, { property: 'licence' }],
+        },
+      ],
+    },
+  ],
+};
+
 const navItemObject = {
   name: 'navItem',
   title: 'Menu Item',
   titlePlural: 'Menu',
+  route: 'menu',
   lifecycle: { softDelete: 'removed' },
   properties: [
     { name: 'id', type: 'id', strategy: 'uuid', system: true },
@@ -253,34 +307,19 @@ const settingsObject = {
   name: 'settings',
   title: 'Site Settings',
   titlePlural: 'Site Settings',
-  lifecycle: { softDelete: 'removed' },
+  route: 'settings',
+  singleton: true,
   properties: [
     { name: 'id', type: 'id', strategy: 'uuid', system: true },
-    { name: 'singleton', type: 'text', default: 'site', editable: 'never', validation: { unique: true } },
-    { name: 'siteTitle', title: 'Site title', type: 'text', validation: { required: true, minLength: 1, maxLength: 200 } },
+    { name: 'siteTitle', title: 'Site title', type: 'text', validation: { maxLength: 200 } },
     { name: 'tagline', title: 'Tagline', type: 'text', nullable: true },
     { name: 'description', title: 'Description', type: 'text', nullable: true, validation: { maxLength: 500 } },
-    { name: 'baseUrl', title: 'Base URL', type: 'text', validation: { required: true } },
-    { name: 'defaultOgImage', title: 'Default OG image', type: 'image', nullable: true },
+    { name: 'baseUrl', title: 'Base URL', type: 'text' },
+    { name: 'defaultOgImage', title: 'Default OG image', type: 'ref', target: 'asset', display: 'title', nullable: true },
     { name: 'twitter', title: 'Twitter/X', type: 'text', nullable: true },
     { name: 'github', title: 'GitHub', type: 'text', nullable: true },
-    { name: 'removed', type: 'boolean', system: true },
   ],
-  lists: [
-    {
-      name: 'default',
-      title: 'Site Settings',
-      columns: [
-        { property: 'siteTitle', label: 'Site title', width: 30 },
-        { property: 'baseUrl', label: 'Base URL', width: 34 },
-      ],
-      actions: [
-        { hotkey: 'n', label: 'new', kind: 'create', view: 'default' },
-        { hotkey: 'e', label: 'edit', kind: 'edit', view: 'default' },
-        { hotkey: 'v', label: 'view', kind: 'view', view: 'default' },
-      ],
-    },
-  ],
+  lists: [],
   views: [
     {
       name: 'default',
@@ -306,6 +345,7 @@ export const cmsObjects: CmsObject[] = [
   postObject,
   categoryObject,
   tagObject,
+  assetObject,
   navItemObject,
   settingsObject,
 ];
@@ -351,6 +391,7 @@ function pnpmWorkspace(opts: ScaffoldOptions): string {
   lines.push('allowBuilds:');
   lines.push('  better-sqlite3: true');
   lines.push('  esbuild: true');
+  lines.push('  sharp: false');
   return `${lines.join('\n')}\n`;
 }
 
@@ -381,7 +422,7 @@ export function buildFiles(opts: ScaffoldOptions): Record<string, string> {
   const config = {
     configVersion: '1',
     environments: environments(opts.backend),
-    app: { version: '1', objects: cmsObjects },
+    app: { version: '1', objects: cmsObjects, assets: 'asset' },
   };
   return {
     'sprintster.config.json': `${JSON.stringify(config, null, 2)}\n`,

@@ -17,9 +17,46 @@ describe('buildFiles', () => {
       'post',
       'category',
       'tag',
+      'asset',
       'navItem',
       'settings',
     ]);
+  });
+
+  it('wires in-body images to the asset object', () => {
+    const cfg = JSON.parse(buildFiles({ name: 'my-site', backend: 'sqlite' })['sprintster.config.json']!);
+    expect(cfg.app.assets).toBe('asset');
+
+    const asset = cmsObjects.find((o) => o.name === 'asset')!;
+    const images = asset.properties.filter((p) => p.type === 'image');
+    expect(images.map((p) => p.name)).toEqual(['file']);
+    expect(asset.titlePlural).not.toMatch(/^assets$/i);
+
+    const optional = asset.properties.filter((p) => p.name !== 'file' && p.name !== 'id' && p.name !== 'removed');
+    for (const prop of optional) expect(prop.validation?.['required']).toBeUndefined();
+
+    for (const name of ['page', 'post']) {
+      const body = cmsObjects.find((o) => o.name === name)!.properties.find((p) => p.name === 'body')!;
+      expect(body).toMatchObject({ type: 'markdown', images: true });
+    }
+  });
+
+  it('declares an explicit route on every object, independent of its labels', () => {
+    const routes = cmsObjects.map((o) => o.route);
+    expect(routes).toEqual(['pages', 'posts', 'categories', 'tags', 'media', 'menu', 'settings']);
+    expect(new Set(routes).size).toBe(routes.length);
+    for (const route of routes) {
+      expect(route).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
+      expect(['health', 'config', 'assets']).not.toContain(route);
+    }
+  });
+
+  it('references assets rather than embedding image values', () => {
+    const refs = cmsObjects
+      .flatMap((o) => o.properties)
+      .filter((p) => ['cover', 'ogImage', 'defaultOgImage'].includes(p.name));
+    expect(refs.length).toBe(3);
+    for (const prop of refs) expect(prop).toMatchObject({ type: 'ref', target: 'asset' });
   });
 
   it('adds a prod environment only for postgres', () => {
@@ -40,6 +77,7 @@ describe('buildFiles', () => {
     const published = buildFiles({ name: 's', backend: 'sqlite' })['pnpm-workspace.yaml']!;
     expect(published).toContain('allowBuilds:');
     expect(published).toContain('better-sqlite3: true');
+    expect(published).toContain('sharp: false');
     expect(published).not.toContain('overrides:');
 
     const local = buildFiles({
@@ -51,10 +89,13 @@ describe('buildFiles', () => {
     expect(local).toContain("sprintster: 'link:../sprintster/packages/sprintster'");
   });
 
-  it('enforces a settings singleton via a hidden unique field', () => {
+  it('declares settings as a singleton with no lifecycle or list', () => {
     const settings = cmsObjects.find((o) => o.name === 'settings')!;
-    const singleton = settings.properties.find((p) => p.name === 'singleton')!;
-    expect(singleton).toMatchObject({ type: 'text', default: 'site', editable: 'never', validation: { unique: true } });
+    expect(settings.singleton).toBe(true);
+    expect(settings.lifecycle).toBeUndefined();
+    expect(settings.lists).toEqual([]);
+    expect(settings.views.length).toBeGreaterThan(0);
+    expect(settings.properties.map((p) => p.name)).not.toContain('removed');
   });
 
   it('marks every slug unique and case-insensitive', () => {

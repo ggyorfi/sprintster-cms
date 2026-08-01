@@ -11,9 +11,12 @@
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "tsc -p tsconfig.json && pnpm -r typecheck",
     "ref": "tsx scripts/ref.ts",
-    "seed": "tsx scripts/seed.ts"
+    "seed": "tsx scripts/seed.ts",
+    "dev": "pnpm --dir examples/reference-site dev",
+    "daemon": "pnpm --dir examples/reference-site daemon",
+    "reset": "pnpm --dir examples/reference-site reset"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",

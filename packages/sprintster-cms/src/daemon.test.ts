@@ -93,11 +93,12 @@ describe('connectDaemon', () => {
     expect(daemon.object('settings').route).toBe('site-settings');
   });
 
+  // A singleton is served as a bare object at the collection path; the client wraps it into one row.
   it('reads rows over the resolved route, not the lowercased label', async () => {
     const calls: Call[] = [];
     const daemon = await connectDaemon({
       baseUrl: 'http://d',
-      fetch: stubFetch({ ...healthy, '/site-settings': [{ id: 'a', siteTitle: 'Hello' }] }, calls),
+      fetch: stubFetch({ ...healthy, '/site-settings': { id: 'a', siteTitle: 'Hello' } }, calls),
     });
     expect(await daemon.rows('settings')).toEqual([{ id: 'a', siteTitle: 'Hello' }]);
     expect(calls.map((c) => c.url)).toContain('http://d/site-settings');
