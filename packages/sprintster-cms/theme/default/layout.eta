@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title><%= it.page ? fallback(it.page.seoTitle, it.page.title) + " | " + it.site.title : it.site.title %></title>
+    <% if (it.page && it.page.seoDescription) { %><meta name="description" content="<%= it.page.seoDescription %>"><% } %>
+    <link rel="stylesheet" href="/_theme/style.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="site-title" href="/"><%= it.site.title %></a>
+      <% if (it.site.tagline) { %><p class="site-tagline"><%= it.site.tagline %></p><% } %>
+      <nav class="site-nav">
+        <% it.site.nav.forEach(function (item) { %><a href="<%= item.url %>"><%= item.label %></a><% }) %>
+      </nav>
+    </header>
+    <main class="site-main">
+<%~ it.content %>
+    </main>
+    <footer class="site-footer">
+      <nav>
+        <% it.site.footerNav.forEach(function (item) { %><a href="<%= item.url %>"><%= item.label %></a><% }) %>
+      </nav>
+      <p><%= it.site.title %></p>
+    </footer>
+  </body>
+</html>

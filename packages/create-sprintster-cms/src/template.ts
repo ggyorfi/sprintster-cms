@@ -376,7 +376,14 @@ function projectPackageJson(opts: ScaffoldOptions): unknown {
     type: 'module',
     engines: { node: '>=22', pnpm: '>=11' },
     packageManager: 'pnpm@11.9.0',
-    scripts: { dev: 's8r dev', daemon: 's8r daemon', start: 's8r', build: 'scms build', reset: 'scms reset' },
+    scripts: {
+      dev: 'scms dev',
+      daemon: 's8r daemon',
+      serve: 'scms serve',
+      start: 's8r',
+      build: 'scms build',
+      reset: 'scms reset',
+    },
     dependencies: { sprintster: 'latest', 'sprintster-cms': 'latest' },
   };
 }
@@ -404,8 +411,10 @@ function readme(name: string): string {
     '## Run',
     '',
     '```',
+    'pnpm dev      # daemon + site on one origin (site at /, admin at /admin)',
     's8r dev       # daemon + terminal UI + opens the web GUI in your browser',
     's8r daemon    # daemon only (serves the API and the web GUI)',
+    'scms serve    # site only, against an already running daemon',
     'scms build    # generate the static site (coming soon)',
     'scms reset    # wipe local data and blobs for a clean start',
     '```',
@@ -422,7 +431,7 @@ export function buildFiles(opts: ScaffoldOptions): Record<string, string> {
   const config = {
     configVersion: '1',
     environments: environments(opts.backend),
-    app: { version: '1', objects: cmsObjects, assets: 'asset' },
+    app: { version: '1', title: opts.name, objects: cmsObjects, assets: 'asset' },
   };
   return {
     'sprintster.config.json': `${JSON.stringify(config, null, 2)}\n`,

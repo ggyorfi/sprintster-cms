@@ -23,7 +23,9 @@
     "dev": "tsx src/scms.ts"
   },
   "dependencies": {
+    "@hono/node-server": "^2.1.1",
     "eta": "^4.0.1",
+    "hono": "^4.13.5",
     "markdown-it": "^14.1.0",
     "sharp": "^0.34.5",
     "shiki": "^3.15.0",

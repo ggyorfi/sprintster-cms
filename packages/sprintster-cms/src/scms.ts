@@ -1,20 +1,30 @@
 #!/usr/bin/env node
-import { reset, build } from './index.js';
+import { reset, build, serve, dev } from './index.js';
 
 function usage(): void {
   console.log('scms <command>');
+  console.log('  dev     start the s8r daemon and serve the site on one origin');
+  console.log('  serve   run the site, admin and API against an already running daemon');
   console.log('  build   generate the static site (coming soon)');
   console.log('  reset   wipe local data and blobs for the given environment (default: dev)');
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2);
   const envIndex = rest.indexOf('--env');
   const env = envIndex >= 0 ? rest[envIndex + 1] ?? 'dev' : 'dev';
+  const portIndex = rest.indexOf('--port');
+  const port = portIndex >= 0 ? Number(rest[portIndex + 1]) : undefined;
 
   switch (command) {
     case 'reset':
       reset(env);
+      return;
+    case 'dev':
+      await dev({ env, ...(port === undefined || Number.isNaN(port) ? {} : { port }) });
+      return;
+    case 'serve':
+      await serve({ env, ...(port === undefined || Number.isNaN(port) ? {} : { port }) });
       return;
     case 'build':
       build();
@@ -31,4 +41,4 @@ function main(): void {
   }
 }
 
-main();
+await main();

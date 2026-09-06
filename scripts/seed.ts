@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,7 +33,12 @@ function found(objectName: string, field: string, value: string): Row | undefine
 async function ensure(objectName: string, slug: string, values: Record<string, unknown>): Promise<string> {
   const already = found(objectName, 'slug', slug);
   if (already !== undefined) {
-    console.log(`  = ${objectName} ${slug}`);
+    if (Object.entries(values).every(([k, v]) => canonical(already[k]) === canonical(v))) {
+      console.log(`  = ${objectName} ${slug}`);
+      return already.id;
+    }
+    await client.object<Row>(objectName).update(already.id, values);
+    console.log(`  ~ ${objectName} ${slug}`);
     return already.id;
   }
   const id = randomUUID();
@@ -71,11 +77,12 @@ async function ensureNavItem(label: string, values: Record<string, unknown>): Pr
   console.log(`  + navItem ${label}`);
 }
 
-async function uploadBlob(name: string, width: number, height: number, background: string, alt: string): Promise<BlobRef> {
-  const png = await sharp({ create: { width, height, channels: 3, background } }).png().toBuffer();
-  const bytes: Uint8Array<ArrayBuffer> = new Uint8Array(png);
+// Fixture photos live in scripts/fixtures with their licences in scripts/fixtures/README.md.
+async function uploadBlob(name: string, alt: string): Promise<BlobRef> {
+  const bytes: Uint8Array<ArrayBuffer> = new Uint8Array(readFileSync(join(repoRoot, 'scripts', 'fixtures', name)));
+  const { width, height } = await sharp(bytes).metadata();
   const form = new FormData();
-  form.append('file', new Blob([bytes], { type: 'image/png' }), name);
+  form.append('file', new Blob([bytes], { type: 'image/jpeg' }), name);
   const res = await fetch(`${daemon.baseUrl}/assets`, { method: 'POST', body: form });
   if (!res.ok) throw new Error(`upload of ${name} failed with status ${res.status}`);
   const uploaded = (await res.json()) as { hash: string; size: number; contentType: string; filename: string };
@@ -97,7 +104,12 @@ async function ensureAsset(
 ): Promise<string> {
   const already = (existing.get('asset') ?? []).find((row) => row['title'] === values.title);
   if (already !== undefined) {
-    console.log(`  = asset ${slug}`);
+    if (canonical(already['file']) === canonical(file) && Object.entries(values).every(([k, v]) => already[k] === v)) {
+      console.log(`  = asset ${slug}`);
+      return already.id;
+    }
+    await client.object<Row>('asset').update(already.id, { file, ...values });
+    console.log(`  ~ asset ${slug}`);
     return already.id;
   }
   const id = randomUUID();
@@ -106,15 +118,29 @@ async function ensureAsset(
   return id;
 }
 
-const coverFile = await uploadBlob('cover-ocean.png', 1600, 900, '#2b6cb0', 'Deep blue gradient');
-const ogFile = await uploadBlob('og-default.png', 1200, 630, '#1a202c', 'Dark card background');
+const coverFile = await uploadBlob('harbour-at-dawn.jpg', 'Fishing boats moored in the harbour of Gdańsk at dawn');
+const ogFile = await uploadBlob('movable-type.jpg', 'A case of metal movable type');
 
 const cover = await ensureAsset(
-  'cover-ocean',
-  { title: 'Harbour at dawn', caption: 'A placeholder cover.', credit: 'Reference fixture', licence: 'CC0' },
+  'harbour-at-dawn',
+  {
+    title: 'Harbour at dawn',
+    caption: 'Dawn over the harbour of Gdańsk.',
+    credit: 'Gerda Arendt, Wikimedia Commons',
+    licence: 'CC0 1.0',
+  },
   coverFile,
 );
-const ogImage = await ensureAsset('og-default', { title: 'Default social card', licence: 'CC0' }, ogFile);
+const ogImage = await ensureAsset(
+  'movable-type',
+  {
+    title: 'Default social card',
+    caption: 'Metal movable type.',
+    credit: 'Willi Heidelbach, Wikimedia Commons',
+    licence: 'CC BY 2.5',
+  },
+  ogFile,
+);
 
 await ensureSingleton('settings', {
   siteTitle: 'Reference Site',
@@ -190,7 +216,7 @@ await ensure('post', 'hello-world', {
     'A [link to the about page](/about/).',
     '',
   ].join('\n'),
-  cover,
+  cover: ogImage,
   category: guides,
   tags: [tagStatic, tagMarkdown],
   publishedAt: iso(-14),
@@ -199,11 +225,11 @@ await ensure('post', 'hello-world', {
 await ensure('post', 'working-with-images', {
   status: 'published',
   title: 'Working with images',
-  excerpt: 'A post whose body references an uploaded asset by hash.',
+  excerpt: 'A post whose cover and body reference two different asset records.',
   body: [
     '## Images in the body',
     '',
-    `![Harbour at dawn](/assets/${cover})`,
+    `![A case of metal movable type](/assets/${ogImage})`,
     '',
     'The generator rewrites that URL to a processed, content-addressed file.',
     '',

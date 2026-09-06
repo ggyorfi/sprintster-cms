@@ -21,7 +21,21 @@ describe('parseSiteConfig', () => {
       routes: { posts: 'blog', categories: 'categories', tags: 'tags', homeSlug: 'home' },
       images: { widths: [480, 768, 1200, 1920], formats: ['avif', 'webp'], quality: 75 },
       pagination: { perPage: 10 },
+      server: { port: 4000, admin: '/admin', api: '/api', assets: '/assets', preview: '/preview' },
     });
+  });
+
+  it('rejects a server prefix that is not a single leading-slash segment', () => {
+    expect(() => parseSiteConfig({ server: { admin: 'admin' } })).toThrow(/segment/);
+    expect(() => parseSiteConfig({ server: { admin: '/admin/deep' } })).toThrow(/segment/);
+  });
+
+  it('rejects two server prefixes that are the same', () => {
+    expect(() => parseSiteConfig({ server: { admin: '/api' } })).toThrow(/must differ/);
+  });
+
+  it('rejects a site route that collides with a server prefix', () => {
+    expect(() => parseSiteConfig({ routes: { posts: 'admin' } })).toThrow(/collide/);
   });
 
   it('keeps sibling defaults when a nested key is overridden', () => {

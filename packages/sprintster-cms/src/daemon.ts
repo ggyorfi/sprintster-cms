@@ -23,6 +23,7 @@ export interface Asset {
 export interface Daemon {
   baseUrl: string;
   objects: readonly ObjectConfig[];
+  assetsObject?: string;
   object(name: string): ObjectConfig;
   rows(objectName: string): Promise<Row[]>;
   asset(hash: string): Promise<Asset>;
@@ -40,7 +41,10 @@ const ServerBlock = z.object({
   port: z.number().int().positive().default(3030),
 });
 
-const ConfigResponse = z.object({ objects: z.array(ObjectConfig).min(1) });
+const ConfigResponse = z.object({
+  objects: z.array(ObjectConfig).min(1),
+  assets: z.string().min(1).optional(),
+});
 
 export function resolveDaemonUrl(root: string = process.cwd(), env = 'dev'): string {
   const path = join(root, PROJECT_CONFIG_FILE);
@@ -79,7 +83,7 @@ export async function connectDaemon(opts: ConnectOptions = {}): Promise<Daemon> 
 
   const res = await fetchImpl(`${baseUrl}/config`);
   if (!res.ok) throw new Error(`GET ${baseUrl}/config failed with status ${res.status}`);
-  const { objects } = ConfigResponse.parse(await res.json());
+  const { objects, assets } = ConfigResponse.parse(await res.json());
   const byName = new Map(objects.map((o) => [o.name, o]));
   const client = createApiClient(baseUrl, { objects, fetch: fetchImpl });
 
@@ -94,6 +98,7 @@ export async function connectDaemon(opts: ConnectOptions = {}): Promise<Daemon> 
   return {
     baseUrl,
     objects,
+    ...(assets === undefined ? {} : { assetsObject: assets }),
     object,
     rows: async (objectName) => {
       object(objectName);

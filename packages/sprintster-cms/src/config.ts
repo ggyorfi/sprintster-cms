@@ -21,6 +21,20 @@ const Pagination = z.strictObject({
   perPage: z.number().int().positive().default(10),
 });
 
+const Prefix = z.string().regex(/^\/[a-z0-9-]+$/, 'must be a single lowercase path segment, starting with a slash');
+
+const Server = z.strictObject({
+  port: z.number().int().positive().default(4000),
+  admin: Prefix.default('/admin'),
+  api: Prefix.default('/api'),
+  assets: Prefix.default('/assets'),
+  preview: Prefix.default('/preview'),
+});
+
+function prefixesOf(server: z.infer<typeof Server>): string[] {
+  return [server.admin, server.api, server.assets, server.preview];
+}
+
 // prefault, not default: a nested `.default({})` is taken verbatim, so inner defaults never fill in.
 const SiteConfigFields = z.strictObject({
   configVersion: z.literal('1').default('1'),
@@ -31,15 +45,31 @@ const SiteConfigFields = z.strictObject({
   routes: Routes.prefault({}),
   images: Images.prefault({}),
   pagination: Pagination.prefault({}),
+  server: Server.prefault({}),
 });
 
 export const SiteConfigSchema = SiteConfigFields.transform((c) => ({
   ...c,
   defaultLang: c.defaultLang ?? c.langs[0],
-})).refine((c) => c.langs.includes(c.defaultLang), {
-  message: 'defaultLang must be one of langs',
-  path: ['defaultLang'],
-});
+}))
+  .refine((c) => c.langs.includes(c.defaultLang), {
+    message: 'defaultLang must be one of langs',
+    path: ['defaultLang'],
+  })
+  .refine((c) => new Set(prefixesOf(c.server)).size === prefixesOf(c.server).length, {
+    message: 'server.admin, server.api, server.assets and server.preview must differ',
+    path: ['server'],
+  })
+  .refine(
+    (c) => {
+      const reserved = new Set(prefixesOf(c.server).map((p) => p.slice(1)));
+      return [c.routes.posts, c.routes.categories, c.routes.tags].every((r) => !reserved.has(r));
+    },
+    {
+      message: 'routes.posts, routes.categories and routes.tags may not collide with a server prefix',
+      path: ['routes'],
+    },
+  );
 
 export type SiteConfig = z.infer<typeof SiteConfigSchema>;
 

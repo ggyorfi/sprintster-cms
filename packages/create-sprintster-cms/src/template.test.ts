@@ -26,6 +26,7 @@ describe('buildFiles', () => {
   it('wires in-body images to the asset object', () => {
     const cfg = JSON.parse(buildFiles({ name: 'my-site', backend: 'sqlite' })['sprintster.config.json']!);
     expect(cfg.app.assets).toBe('asset');
+    expect(cfg.app.title).toBe('my-site');
 
     const asset = cmsObjects.find((o) => o.name === 'asset')!;
     const images = asset.properties.filter((p) => p.type === 'image');
@@ -70,7 +71,7 @@ describe('buildFiles', () => {
     const pkg = JSON.parse(buildFiles({ name: 's', backend: 'sqlite' })['package.json']!);
     expect(pkg.dependencies).toEqual({ sprintster: 'latest', 'sprintster-cms': 'latest' });
     expect(pkg.packageManager).toBe('pnpm@11.9.0');
-    expect(pkg.scripts).toMatchObject({ build: 'scms build', reset: 'scms reset' });
+    expect(pkg.scripts).toMatchObject({ dev: 'scms dev', serve: 'scms serve', build: 'scms build', reset: 'scms reset' });
   });
 
   it('always approves native builds and only writes overrides when local', () => {

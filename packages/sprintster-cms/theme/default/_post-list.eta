@@ -1,0 +1,14 @@
+<% if (size(it.posts) === 0) { %>
+<p class="empty">Nothing published yet.</p>
+<% } else { %>
+<ul class="post-list">
+  <% it.posts.forEach(function (post) { %>
+  <li class="post-card">
+    <% if (post.image) { %><a href="<%= post.url %>"><img src="<%= post.image.src %>" alt="<%= post.image.alt %>" loading="lazy"></a><% } %>
+    <h2><a href="<%= post.url %>"><%= post.title %></a></h2>
+    <%~ include("_post-meta", { post: post }) %>
+    <p><%= truncatewords(post.excerpt, 30) %></p>
+  </li>
+  <% }) %>
+</ul>
+<% } %>

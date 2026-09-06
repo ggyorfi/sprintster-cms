@@ -1,0 +1,9 @@
+<h1>Posts</h1>
+<%~ include("_post-list", { posts: it.posts }) %>
+<% if (it.paginator.total_pages > 1) { %>
+<nav class="pagination">
+  <% if (it.paginator.previous_page_path) { %><a rel="prev" href="<%= it.paginator.previous_page_path %>">Newer</a><% } %>
+  <span>Page <%= it.paginator.page %> of <%= it.paginator.total_pages %></span>
+  <% if (it.paginator.next_page_path) { %><a rel="next" href="<%= it.paginator.next_page_path %>">Older</a><% } %>
+</nav>
+<% } %>

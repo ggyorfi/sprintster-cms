@@ -31,6 +31,7 @@ To work on the reference site:
 
 ```
 cd examples/reference-site
+pnpm dev                # daemon + site on http://localhost:4000
 pnpm exec s8r daemon    # API and web GUI on the configured port
 pnpm exec scms reset    # wipe its store and blobs
 ```

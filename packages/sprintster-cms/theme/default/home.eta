@@ -1,0 +1,7 @@
+<article class="home">
+  <%~ it.page.content %>
+</article>
+<section class="recent">
+  <h2>Latest posts</h2>
+  <%~ include("_post-list", { posts: it.posts.slice(0, 5) }) %>
+</section>
