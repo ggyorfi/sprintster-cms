@@ -2,7 +2,7 @@
   <h1><%= it.page.title %></h1>
   <%~ include("_post-meta", { post: it.page }) %>
   <% if (it.page.image) { %>
-  <img class="cover" src="<%= it.page.image.src %>" alt="<%= it.page.image.alt %>">
+  <%~ include("_picture", { image: it.page.image, class: "cover" }) %>
   <% } %>
   <%~ it.page.content %>
 </article>

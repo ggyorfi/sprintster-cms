@@ -15,6 +15,7 @@ const Images = z.strictObject({
   widths: z.array(z.number().int().positive()).min(1).default([480, 768, 1200, 1920]),
   formats: z.array(z.enum(['avif', 'webp'])).min(1).default(['avif', 'webp']),
   quality: z.number().int().min(1).max(100).default(75),
+  cacheDir: z.string().min(1).default('.scms/cache'),
 });
 
 const Pagination = z.strictObject({

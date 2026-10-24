@@ -22,21 +22,28 @@ Every image on the site is currently the full size original fetched through the
 API proxy, so a 1600px cover ships to a phone. The seam exists and has one
 implementation; this fills in the second.
 
-- [ ] **1. Encode a rendition.** sharp, from a source blob to
+- [x] **1. Encode a rendition.** sharp, from a source blob to
       `(width, format)`, with the output named as a pure function of blob hash,
-      transform, width and format.
+      transform, width and format. The name grammar is
+      [ADR 1](docs/ADR/0001-rendition-file-names.md); `renditions.ts` holds the
+      encoder and the two name functions.
       *Done when:* the same input yields the same filename twice, and quality
       and formats come from `images` config rather than constants.
-- [ ] **2. Persistent cache outside `dist`.** Nothing re-encodes across builds
-      or restarts.
+- [x] **2. Persistent cache outside `dist`.** Nothing re-encodes across builds
+      or restarts. `images.cacheDir`, default `.scms/cache`: renditions by
+      name, plus `probes.json` holding each blob's oriented size.
       *Done when:* a second run encodes nothing, and a replaced blob encodes
       only the new renditions while the old ones are left untouched.
-- [ ] **3. `<picture>` output.** After 1. avif and webp with the original as
+- [x] **3. `<picture>` output.** After 1. avif and webp with the original as
       fallback, `srcset` by width, capped at the source's intrinsic width.
+      `planRenditions` caps every rung inside the source, so names are known
+      before encoding. Themes get raw `srcset`, `sizes` and `sources` and
+      render them through `_picture.eta`.
       *Done when:* a 900px source emits no 1200 or 1920 rung, and intrinsic
       dimensions come from the oriented image rather than the stored bytes.
-- [ ] **4. Serve renditions at `/assets`.** After 3. Demand driven: a rendition
-      is produced because a page asked for it.
+- [x] **4. Serve renditions at `/assets`.** After 3. Demand driven: a rendition
+      is produced because a page asked for it. Only names the seam emitted in
+      this process encode; a cached file is served regardless.
       *Done when:* an unreferenced library entry produces no files.
 
 ## Then: `scms build`
@@ -47,6 +54,23 @@ the claim that the router subsumes the generator.
 - [ ] **1. Route enumeration.** Every URL the site can serve, from content.
 - [ ] **2. Write the tree.** Trailing slash URLs become `index.html`.
 - [ ] **3. Feed, sitemap, robots.** Deferred out of the first serve pass.
+
+## Later: `images.mode: 'url'` and a Cloudflare deploy module
+
+Decided 2026-09-07. Static exports bake every rendition. A deploy module for
+Cloudflare, opt in per site, switches the seam to URL mode: it emits
+`/cdn-cgi/image/<options>/<source>` URLs from the same authored transform and
+encodes nothing, and the deploy step makes the source blobs reachable. The
+transform keys map mechanically: sharp fits to `cover`, `pad`, `squeeze`,
+`scale-down`; the crop rectangle to `trim` edges; `gravity` and `background`
+by name, which is why new keys take Cloudflare's names. With `format=auto`
+URL mode emits one `img` with `srcset` rather than a `picture`; the template
+never knows which.
+
+Moved up 2026-10-24: sprintster's next epic runs the daemon on Cloudflare, with
+blobs in R2. sharp is a native module and does not run on Workers, so a site
+hosted there needs URL mode, or the Workers Images binding reading from R2, from
+the start.
 
 ## Deferred
 

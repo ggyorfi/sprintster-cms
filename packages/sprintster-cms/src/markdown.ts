@@ -1,6 +1,6 @@
 import MarkdownIt from 'markdown-it';
 import { escape } from './filters.js';
-import { parseAssetUrl, type ImageSeam } from './images.js';
+import { parseAssetUrl, type ImageSeam, type RenderedImage } from './images.js';
 
 export interface MarkdownOptions {
   images: ImageSeam;
@@ -20,6 +20,22 @@ function isLoneImage(tokens: ReturnType<MarkdownIt['parse']>, idx: number): bool
   if (inline === undefined || inline.type !== 'inline') return false;
   const children = (inline.children ?? []).filter((t) => !(t.type === 'text' && t.content.trim() === ''));
   return children.length === 1 && children[0]?.type === 'image';
+}
+
+export function pictureHtml(image: RenderedImage): string {
+  const img = `<img${attrs([
+    ['src', image.src],
+    ['srcset', image.srcset],
+    ['sizes', image.srcset === undefined ? undefined : image.sizes],
+    ['alt', image.alt],
+    ['width', image.width],
+    ['height', image.height],
+    ['loading', 'lazy'],
+    ['decoding', 'async'],
+  ])}>`;
+  if (image.sources === undefined || image.sources.length === 0) return img;
+  const sources = image.sources.map((s) => `<source${attrs([['type', s.type], ['srcset', s.srcset], ['sizes', image.sizes]])}>`);
+  return `<picture>${sources.join('')}${img}</picture>`;
 }
 
 export function createMarkdown(opts: MarkdownOptions): MarkdownIt {
@@ -43,14 +59,7 @@ export function createMarkdown(opts: MarkdownOptions): MarkdownIt {
     const image = opts.images({ assetId: parsed.assetId, alt, transform: parsed.transform });
     if (image === null) throw new Error(`body references an asset that does not exist: ${src}`);
 
-    const tag = `<img${attrs([
-      ['src', image.src],
-      ['alt', image.alt],
-      ['width', image.width],
-      ['height', image.height],
-      ['loading', 'lazy'],
-      ['decoding', 'async'],
-    ])}>`;
+    const tag = pictureHtml(image);
 
     if (image.caption === undefined && image.credit === undefined) return tag;
     const caption = image.caption === undefined ? '' : escape(image.caption);

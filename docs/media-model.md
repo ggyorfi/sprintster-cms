@@ -80,9 +80,11 @@ as `/media/width=600/<id>.avif` would show a broken image until something serves
 it.
 
 The transform grammar is comma separated `key=value`, taken from the earlier
-media service prototype: `width`, `height`, `fit` (cover, contain, fill, inside,
-outside). The same authored string is read by both rendition modes below, which
-is what makes baking a strategy rather than the architecture.
+media service prototype and finalised against Cloudflare's URL schema in
+[ADR 1](ADR/0001-rendition-file-names.md): `width`, `height`, `fit`, `crop`,
+`gravity`, `background`. The same authored string is read by both rendition
+modes below, which is what makes baking a strategy rather than the
+architecture.
 
 Verified by reading `packages/web/src/ui/MarkdownEditor.tsx`: the image node
 serialises `![alt](src)` from `attrs.src` through `storedAssetUrl`, which only

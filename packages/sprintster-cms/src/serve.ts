@@ -4,6 +4,7 @@ import { Hono, type Context } from 'hono';
 import { loadSiteConfig, type SiteConfig } from './config.js';
 import { loadContent, resolve } from './content.js';
 import { connectDaemon, type Daemon } from './daemon.js';
+import { createMedia, type Media } from './media.js';
 import { createRenderer } from './render.js';
 import { matchRoute, urlSpace } from './routes.js';
 import { loadTheme, type Theme } from './theme.js';
@@ -30,9 +31,9 @@ async function forward(target: string, c: Context): Promise<Response> {
   return fetch(target, init);
 }
 
-export function createSiteApp(site: SiteConfig, daemon: Daemon, theme: Theme): Hono {
+export function createSiteApp(site: SiteConfig, daemon: Daemon, theme: Theme, media: Media): Hono {
   const app = new Hono();
-  const { api, admin, preview } = site.server;
+  const { api, admin, assets, preview } = site.server;
 
   app.all(`${api}/*`, (c) => {
     const url = new URL(c.req.url);
@@ -46,6 +47,15 @@ export function createSiteApp(site: SiteConfig, daemon: Daemon, theme: Theme): H
     return forward(`${daemon.baseUrl}${url.pathname.slice(admin.length)}${url.search}`, c);
   });
 
+  app.get(`${assets}/:name`, async (c) => {
+    const rendition = await media.rendition(c.req.param('name'));
+    if (rendition === null) return c.notFound();
+    return c.body(rendition.bytes, 200, {
+      'content-type': rendition.contentType,
+      'cache-control': 'public, max-age=31536000, immutable',
+    });
+  });
+
   app.use('/_theme/*', serveStatic({ root: theme.dir, rewriteRequestPath: (p) => p.replace(/^\/_theme/, '/static') }));
 
   app.get('*', async (c) => {
@@ -54,7 +64,7 @@ export function createSiteApp(site: SiteConfig, daemon: Daemon, theme: Theme): H
     const space = urlSpace(site, isPreview);
     const match = matchRoute(pathname, space);
     const content = await loadContent(daemon, { preview: isPreview });
-    const renderer = createRenderer(theme, site, content, space);
+    const renderer = createRenderer(theme, site, content, space, { images: await media.seam(content) });
     const resolved = match === null ? null : resolve(match, content, site);
     if (resolved === null) return c.html(renderer.notFound(), 404);
     return c.html(renderer.page(resolved));
@@ -69,13 +79,14 @@ export async function serve(opts: ServeOptions = {}): Promise<void> {
   const daemon = await connectDaemon({ root, ...(opts.env === undefined ? {} : { env: opts.env }) });
   const port = opts.port ?? site.server.port;
   const theme = loadTheme(site.theme, root);
-  const app = createSiteApp(site, daemon, theme);
+  const app = createSiteApp(site, daemon, theme, createMedia(daemon, site, root));
 
   listen({ fetch: app.fetch, port }, ({ port: bound }) => {
     console.log(`scms serve on http://127.0.0.1:${bound}`);
     console.log(`  site    /`);
     console.log(`  admin   ${site.server.admin}`);
     console.log(`  api     ${site.server.api} -> ${daemon.baseUrl}`);
+    console.log(`  assets  ${site.server.assets}`);
     console.log(`  preview ${site.server.preview}`);
   });
 }

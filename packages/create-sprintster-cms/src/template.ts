@@ -437,7 +437,7 @@ export function buildFiles(opts: ScaffoldOptions): Record<string, string> {
     'sprintster.config.json': `${JSON.stringify(config, null, 2)}\n`,
     'package.json': `${JSON.stringify(projectPackageJson(opts), null, 2)}\n`,
     'pnpm-workspace.yaml': pnpmWorkspace(opts),
-    '.gitignore': ['.sprintster/', 'node_modules/', ''].join('\n'),
+    '.gitignore': ['.sprintster/', '.scms/', 'node_modules/', ''].join('\n'),
     'README.md': readme(opts.name),
   };
 }
