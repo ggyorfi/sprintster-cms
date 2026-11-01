@@ -1,6 +1,7 @@
 import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
+export * from './build.js';
 export * from './collections.js';
 export * from './config.js';
 export * from './content.js';
@@ -44,6 +45,3 @@ export function reset(env: string): void {
   console.log('reset complete; next daemon start recreates a clean store');
 }
 
-export function build(): void {
-  console.log('scms build: the static site generator is not implemented yet.');
-}

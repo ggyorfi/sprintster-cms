@@ -23,6 +23,7 @@ export interface ServedRendition {
 export interface Media {
   seam(content: SiteContent): Promise<ImageSeam>;
   rendition(name: string): Promise<ServedRendition | null>;
+  demanded(): string[];
 }
 
 const PROBES_FILE = 'probes.json';
@@ -95,6 +96,8 @@ export function createMedia(daemon: Daemon, site: SiteConfig, root: string): Med
       }
       return createRenditionSeam(content, site, (hash) => known.get(hash), (name, request) => demanded.set(name, request));
     },
+
+    demanded: () => [...demanded.keys()],
 
     async rendition(name) {
       const contentType = renditionContentType(name);

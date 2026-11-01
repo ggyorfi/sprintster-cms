@@ -49,6 +49,7 @@ get no pages. They are still available to templates as data.
 | `sort` | creation order | a property name, `-` in front for descending |
 | `perPage` | `pagination.perPage` | records per list page |
 | `home` | none | on the `/` collection only: the slug of the record rendered at `/` |
+| `list` | `true` | `false`: no list pages, only record pages |
 | `publish` | see below | which records are live |
 | `false` | | the collection gets no pages |
 
@@ -98,8 +99,11 @@ and menus without the view model knowing either object.
 
 ### Template lookup
 
-`<object>.eta` for a detail page and `<object>-list.eta` for a list, falling
-back to the theme's generic `item.eta` and `list.eta`. The home record renders
+`<object>-<slug>.eta` for one record, then `<object>.eta` for a detail page
+and `<object>-list.eta` for a list, falling back to the theme's generic
+`item.eta` and `list.eta`. Records also carry `$raw`, their markdown before
+rendering, and templates get a `markdownify` filter, so a theme can rewrite a
+body before rendering it. The home record renders
 with `home.eta` when the theme has one. A theme therefore only adds files for
 the objects it wants to style differently.
 

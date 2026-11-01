@@ -2,13 +2,13 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Eta } from 'eta';
-import { filters } from './filters.js';
+import { filters, type Filters } from './filters.js';
 import type { TemplateData } from './viewmodel.js';
 
 export interface Theme {
   dir: string;
   has(template: string): boolean;
-  render(template: string, data: TemplateData): string;
+  render(template: string, data: TemplateData, overrides?: Partial<Filters>): string;
 }
 
 const BUNDLED = fileURLToPath(new URL('../theme', import.meta.url));
@@ -31,8 +31,8 @@ export function loadTheme(name: string, root: string, cache = true): Theme {
   return {
     dir,
     has: (template) => existsSync(join(dir, `${template}.eta`)),
-    render(template, data) {
-      const withFilters = { ...data, filters };
+    render(template, data, overrides = {}) {
+      const withFilters = { ...data, filters: { ...filters, ...overrides } };
       const content = eta.render(template, withFilters);
       return eta.render('layout', { ...withFilters, content });
     },

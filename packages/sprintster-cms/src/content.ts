@@ -124,7 +124,7 @@ export function resolve(match: RouteMatch, content: SiteContent): Resolved | nul
     return record === undefined ? null : { kind: 'item', collection, record };
   }
   // The '/' collection has no list page: '/' is its home record.
-  if (collection.path === '/') return null;
+  if (collection.path === '/' || !collection.list) return null;
   const pageCount = Math.max(1, Math.ceil(all.length / collection.perPage));
   if (match.page > pageCount) return null;
   const start = (match.page - 1) * collection.perPage;

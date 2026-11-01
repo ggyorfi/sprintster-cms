@@ -7,6 +7,7 @@ export interface Collection {
   sort: { property: string; descending: boolean } | null;
   perPage: number;
   home: string | null;
+  list: boolean;
   // null: every record is live. Otherwise the fields that decide it, each present only when the object has that property.
   publish: { status: { property: string; value: string } | null; date: string | null } | null;
 }
@@ -47,6 +48,7 @@ export function buildCollections(site: SiteConfig, objects: readonly ObjectConfi
       sort: sort === undefined ? null : { property: sort.replace(/^-/, ''), descending: sort.startsWith('-') },
       perPage: override?.perPage ?? site.pagination.perPage,
       home: override?.home ?? null,
+      list: override?.list ?? true,
       publish:
         publish === false
           ? null

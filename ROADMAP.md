@@ -107,8 +107,11 @@ locale. scms still has its own unused `langs` and `defaultLang`.
 Walk the route table, call the same renderer, write files. This is the test of
 the claim that the router subsumes the generator.
 
-- [ ] **1. Route enumeration.** Every URL the site can serve, from content.
-- [ ] **2. Write the tree.** Trailing slash URLs become `index.html`.
+- [x] **1. Route enumeration.** Every URL the site can serve, from content,
+      in every language.
+- [x] **2. Write the tree.** Trailing slash URLs become `index.html`, with
+      `404.html`, the demanded renditions, originals that cannot be resized,
+      and the theme's static files.
 - [ ] **3. Feed, sitemap, robots.** Deferred out of the first serve pass.
 
 ## Later: `images.mode: 'url'` and a Cloudflare deploy module

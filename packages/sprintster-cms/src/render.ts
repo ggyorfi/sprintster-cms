@@ -25,6 +25,7 @@ export function createRenderer(
 ): Renderer {
   const images = opts.images ?? createSourceSeam(content, site);
   const md = createMarkdown({ images, assetsPrefix: site.server.assets });
+  const markdownify = (value: unknown): string => md.render(typeof value === 'string' ? value : '');
   const ctx: ViewContext = {
     content,
     space,
@@ -38,10 +39,10 @@ export function createRenderer(
       const { templates, data } = viewFor(resolved, ctx);
       const template = templates.find((t) => theme.has(t));
       if (template === undefined) throw new Error(`theme '${theme.dir}' has none of ${templates.map((t) => `${t}.eta`).join(', ')}`);
-      return theme.render(template, data);
+      return theme.render(template, data, { markdownify });
     },
     notFound() {
-      return theme.render('404', notFoundData(ctx));
+      return theme.render('404', notFoundData(ctx), { markdownify });
     },
   };
 }

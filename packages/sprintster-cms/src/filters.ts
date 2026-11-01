@@ -142,6 +142,11 @@ export function sort(value: unknown, key?: string): unknown[] {
   });
 }
 
+// Jekyll's markdownify. The renderer replaces it per page, so images and asset links resolve as in markdown fields.
+export function markdownify(_value: unknown): string {
+  throw new Error('markdownify is only available while a page renders');
+}
+
 // 'default' is a reserved word, so the registry name and the exported binding differ here alone.
 export const filters = {
   date,
@@ -157,6 +162,7 @@ export const filters = {
   slugify,
   where,
   sort,
+  markdownify,
 } as const;
 
 export type Filters = typeof filters;

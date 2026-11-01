@@ -13,11 +13,12 @@ import { loadTheme, type Theme } from './theme.js';
 import { createViews } from './viewmodel.js';
 import { blogObjects, blogSite, object } from './test-objects.js';
 
-function fakeDaemon(objects: ObjectConfig[], rows: Record<string, Row[]>, locales: string[] = []): Daemon {
+function fakeDaemon(objects: ObjectConfig[], rows: Record<string, Row[]>, locales: string[] = [], assetsObject?: string): Daemon {
   return {
     baseUrl: 'http://daemon',
     objects,
     locales,
+    ...(assetsObject === undefined ? {} : { assetsObject }),
     object: (name) => objects.find((o) => o.name === name)!,
     rows: async (name) => rows[name] ?? [],
     asset: async () => ({ bytes: new Uint8Array(), contentType: 'image/png' }),
@@ -180,5 +181,67 @@ describe('languages', () => {
     const html = (await render('/works/mask/'))!;
     expect(html).toContain('<h1>Mask</h1>');
     expect(html).toContain('<html lang="en">');
+  });
+});
+
+describe('rendition demand', () => {
+  it('demands renditions only for images a template reads', async () => {
+    const objects = [
+      object('asset', 'media', [{ name: 'file', type: 'image' }]),
+      object('work', 'works', [{ name: 'title', type: 'text' }, { name: 'slug', type: 'text' }, { name: 'images', type: 'refs', target: 'asset' }]),
+    ];
+    const rows = { asset: [{ id: 'a1' }], work: [{ id: 'w1', title: 'Mask', slug: 'mask', images: ['a1'] }] };
+    const site = parseSiteConfig({});
+    const collections = buildCollections(site, objects);
+    const content = await loadContent(fakeDaemon(objects, rows, [], 'asset'), collections, { now });
+    const asked: string[] = [];
+    const views = createViews({ content, space: urlSpace(site, collections), images: (r) => (asked.push(r.assetId), null), renderMarkdown: (s) => s });
+    const work = views.full('work', rows.work[0]!);
+    void views.data();
+    expect(work.title).toBe('Mask');
+    expect(asked).toEqual([]);
+    void work['images'];
+    expect(asked).toEqual(['a1']);
+  });
+});
+
+describe('theme hooks', () => {
+  it('prefers a template named after the record, and lets templates rewrite raw markdown', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'scms-theme-'));
+    const { mkdirSync, writeFileSync } = await import('node:fs');
+    mkdirSync(join(root, 'themes', 'mini'), { recursive: true });
+    const file = (name: string, body: string) => writeFileSync(join(root, 'themes', 'mini', `${name}.eta`), body);
+    file('layout', '<%~ it.content %>');
+    file('item', 'generic');
+    file('page-about', '<%~ markdownify(it.page.$raw.body.replace("X", "**Y**")) %>');
+    file('404', 'missing');
+    const site = parseSiteConfig({ collections: { page: { path: '/' }, post: { list: false } } });
+    const collections = buildCollections(site, blogObjects);
+    const rows = { ...blogRows, page: [{ id: 'p1', title: 'About', slug: 'about', body: 'X', status: 'published' }, { id: 'p2', title: 'Other', slug: 'other', body: 'X', status: 'published' }] };
+    const content = await loadContent(fakeDaemon(blogObjects, rows), collections, { now });
+    const space = urlSpace(site, collections);
+    const renderer = createRenderer(loadTheme('mini', root, false), site, content, space, { now });
+    const page = (path: string) => {
+      const match = matchRoute(path, space);
+      const resolved = match === null ? null : resolve(match, content);
+      return resolved === null ? null : renderer.page(resolved);
+    };
+    expect(page('/about/')).toContain('<strong>Y</strong>');
+    expect(page('/other/')).toBe('generic');
+    expect(page('/posts/')).toBeNull();
+    expect(page('/posts/new/')).toBe('generic');
+  });
+
+  it('carries the asset record on a resolved picture', async () => {
+    const objects = [
+      object('asset', 'media', [{ name: 'file', type: 'image' }, { name: 'video', type: 'text' }]),
+      object('work', 'works', [{ name: 'slug', type: 'text' }, { name: 'images', type: 'refs', target: 'asset' }]),
+    ];
+    const rows = { asset: [{ id: 'a1', video: 'https://v' }], work: [{ id: 'w1', slug: 'w', images: ['a1'] }] };
+    const site = parseSiteConfig({});
+    const collections = buildCollections(site, objects);
+    const content = await loadContent(fakeDaemon(objects, rows, [], 'asset'), collections, { now });
+    const views = createViews({ content, space: urlSpace(site, collections), images: () => ({ src: '/x', alt: '' }), renderMarkdown: (s) => s });
+    expect((views.full('work', rows.work[0]!)['images'] as Array<{ record: { video: string } }>)[0]!.record.video).toBe('https://v');
   });
 });

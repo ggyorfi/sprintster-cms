@@ -24,6 +24,7 @@ const CollectionOverride = z.union([
       .optional(),
     perPage: z.number().int().positive().optional(),
     home: z.string().min(1).optional(),
+    list: z.boolean().optional(),
     publish: Publish.optional(),
   }),
 ]);

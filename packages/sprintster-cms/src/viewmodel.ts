@@ -1,5 +1,5 @@
 import type { ObjectConfig, PropertyConfig } from 'sprintster';
-import { inLocale, type Resolved, type SiteContent } from './content.js';
+import { inLocale, slugOf, type Resolved, type SiteContent } from './content.js';
 import type { Row } from './daemon.js';
 import type { ImageSeam, RenderedImage } from './images.js';
 import { urlFor, type RouteMatch, type UrlSpace } from './routes.js';
@@ -8,6 +8,8 @@ export interface RecordView {
   id: string;
   object: string;
   url: string | null;
+  // Markdown fields before rendering, in the page's language, for templates that rewrite it and call markdownify.
+  $raw: Record<string, string>;
   referencedBy?: Record<string, RecordView[]>;
   [field: string]: unknown;
 }
@@ -83,7 +85,12 @@ export function createViews(ctx: ViewContext) {
     if (prop.type !== 'ref' && prop.type !== 'refs') return value;
     const ids = idsOf(value);
     if (prop.target === content.assetsObject) {
-      const pictures = ids.map(image).filter((p): p is RenderedImage => p !== null);
+      // The asset record rides along as `record`, so a template can read its caption, video or other fields.
+      const pictures = ids.flatMap((id) => {
+        const picture = image(id);
+        const row = rowById.get(prop.target)?.get(id);
+        return picture === null ? [] : [{ ...picture, record: row === undefined ? null : view(prop.target, row, depth + 1) }];
+      });
       return prop.type === 'ref' ? (pictures[0] ?? null) : pictures;
     }
     // One level only, so a cycle of refs cannot recurse.
@@ -99,10 +106,26 @@ export function createViews(ctx: ViewContext) {
     const key = `${objectName}:${row.id}:${depth}`;
     const cached = memo.get(key);
     if (cached !== undefined) return cached;
-    const out: RecordView = { id: row.id, object: objectName, url: null };
+    const out: RecordView = { id: row.id, object: objectName, url: null, $raw: {} };
     for (const prop of objects.get(objectName)?.properties ?? []) {
       if (prop.name === 'id') continue;
-      out[prop.name] = field(prop, row[prop.name], depth);
+      if (prop.type === 'markdown') {
+        const source = isTranslated(prop) ? inLocale(row[prop.name], content.locales, ctx.space.lang ?? undefined) : row[prop.name];
+        out.$raw[prop.name] = typeof source === 'string' ? source : '';
+      }
+      // Resolved on first read: resolving an image demands its renditions, and only images a template shows may be encoded.
+      let value: unknown;
+      let resolved = false;
+      Object.defineProperty(out, prop.name, {
+        enumerable: true,
+        get: () => {
+          if (!resolved) {
+            value = field(prop, row[prop.name], depth);
+            resolved = true;
+          }
+          return value;
+        },
+      });
     }
     if (collectionOf.has(objectName) && typeof row['slug'] === 'string') {
       out.url = urlFor({ kind: 'item', collection: objectName, slug: row['slug'] }, ctx.space);
@@ -125,7 +148,9 @@ export function createViews(ctx: ViewContext) {
   }
 
   function full(objectName: string, row: Row): RecordView {
-    return { ...view(objectName, row), referencedBy: referencedBy(objectName, row) };
+    return Object.create(view(objectName, row), {
+      referencedBy: { enumerable: true, get: () => referencedBy(objectName, row) },
+    }) as RecordView;
   }
 
   function data(): TemplateData['data'] {
@@ -184,9 +209,9 @@ export function viewFor(resolved: Resolved, ctx: ViewContext): Rendering {
 
   switch (resolved.kind) {
     case 'home':
-      return { templates: ['home', object, 'item'], data: { ...base, page: views.full(object, resolved.record) } };
+      return { templates: ['home', `${object}-${slugOf(resolved.record)}`, object, 'item'], data: { ...base, page: views.full(object, resolved.record) } };
     case 'item':
-      return { templates: [object, 'item'], data: { ...base, page: views.full(object, resolved.record) } };
+      return { templates: [`${object}-${slugOf(resolved.record)}`, object, 'item'], data: { ...base, page: views.full(object, resolved.record) } };
     case 'list': {
       const records = resolved.records.map((r) => views.full(object, r));
       const link = (page: number) => urlFor({ kind: 'list', collection: object, page }, ctx.space);

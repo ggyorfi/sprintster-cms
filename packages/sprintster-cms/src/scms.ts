@@ -5,7 +5,7 @@ function usage(): void {
   console.log('scms <command>');
   console.log('  dev     start the s8r daemon and serve the site on one origin');
   console.log('  serve   run the site, admin and API against an already running daemon');
-  console.log('  build   generate the static site (coming soon)');
+  console.log('  build   generate the static site into outDir (default dist), against a running daemon');
   console.log('  reset   wipe local data and blobs for the given environment (default: dev)');
 }
 
@@ -26,9 +26,14 @@ async function main(): Promise<void> {
     case 'serve':
       await serve({ env, ...(port === undefined || Number.isNaN(port) ? {} : { port }) });
       return;
-    case 'build':
-      build();
+    case 'build': {
+      const started = Date.now();
+      const report = await build({ env });
+      console.log(
+        `scms build: ${report.pages} pages, ${report.renditions} renditions, ${report.originals} originals -> ${report.outDir} in ${((Date.now() - started) / 1000).toFixed(1)}s`,
+      );
       return;
+    }
     case undefined:
     case 'help':
     case '--help':
