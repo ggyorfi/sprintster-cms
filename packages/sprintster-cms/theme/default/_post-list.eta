@@ -4,10 +4,10 @@
 <ul class="post-list">
   <% it.posts.forEach(function (post) { %>
   <li class="post-card">
-    <% if (post.image) { %><a href="<%= post.url %>"><%~ include("_picture", { image: post.image, lazy: true }) %></a><% } %>
+    <% if (post.cover) { %><a href="<%= post.url %>"><%~ include("_picture", { image: post.cover, lazy: true }) %></a><% } %>
     <h2><a href="<%= post.url %>"><%= post.title %></a></h2>
     <%~ include("_post-meta", { post: post }) %>
-    <p><%= truncatewords(post.excerpt, 30) %></p>
+    <p><%= truncatewords(fallback(post.excerpt, strip_html(post.body)), 30) %></p>
   </li>
   <% }) %>
 </ul>

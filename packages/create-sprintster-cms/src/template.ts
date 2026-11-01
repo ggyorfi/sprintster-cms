@@ -427,6 +427,14 @@ function readme(name: string): string {
   ].join('\n');
 }
 
+// Pages sit at the site root with 'home' at '/'; posts under /blog, newest first. Categories and tags keep their routes.
+export const siteConfig = {
+  collections: {
+    page: { path: '/', home: 'home' },
+    post: { path: '/blog', sort: '-publishedAt' },
+  },
+};
+
 export function buildFiles(opts: ScaffoldOptions): Record<string, string> {
   const config = {
     configVersion: '1',
@@ -435,6 +443,7 @@ export function buildFiles(opts: ScaffoldOptions): Record<string, string> {
   };
   return {
     'sprintster.config.json': `${JSON.stringify(config, null, 2)}\n`,
+    'scms.config.json': `${JSON.stringify(siteConfig, null, 2)}\n`,
     'package.json': `${JSON.stringify(projectPackageJson(opts), null, 2)}\n`,
     'pnpm-workspace.yaml': pnpmWorkspace(opts),
     '.gitignore': ['.sprintster/', '.scms/', 'node_modules/', ''].join('\n'),

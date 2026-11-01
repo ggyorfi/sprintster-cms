@@ -16,7 +16,7 @@ work below are in [docs/media-model.md](docs/media-model.md) and
 - **The default theme.** eta templates, a Liquid named filter registry, a view
   model shaped like Jekyll's, markdown with the image seam in place.
 
-## Next: renditions, bake mode
+## Done: renditions, bake mode
 
 Every image on the site is currently the full size original fetched through the
 API proxy, so a 1600px cover ships to a phone. The seam exists and has one
@@ -45,6 +45,61 @@ implementation; this fills in the second.
       is produced because a page asked for it. Only names the seam emitted in
       this process encode; a cached file is served regardless.
       *Done when:* an unreferenced library entry produces no files.
+
+## Done: collections from config
+
+Every route kind is hard coded today: posts, categories, tags and pages. The
+first client site is a portfolio with works, exhibitions and series, and every
+site after it will want its own objects. The design is
+[ADR 2](docs/ADR/0002-collections-and-routes.md): an object with a slug is a
+collection, and `scms.config.json` only overrides.
+
+- [x] **1. The collection table.** Derived from the app config, then overridden
+      by `collections` in `scms.config.json`, with every rule ADR 2 lists
+      checked in `loadSiteConfig`.
+      *Done when:* the portfolio app yields works, exhibitions, series and pages
+      with no override but `page: { "path": "/" }`, and each rejected case
+      names the collections involved.
+- [x] **2. One resolver.** After 1. `matchRoute` and `urlFor` over collections,
+      list pagination included, the `/` collection matched last, the preview
+      base kept.
+      *Done when:* every current route test passes with the routes expressed as
+      collections, and `routes.ts` contains no object name.
+- [x] **3. Publishing per collection.** After 1. The `status` and `publishedAt`
+      convention, `publish` overrides, everything live under `/preview`.
+      *Done when:* a draft of any object is hidden outside `/preview`, and an
+      object without either field is always live.
+- [x] **4. The record view model.** After 2. Refs resolved one level, images as
+      picture data, `url` and `referencedBy`.
+      *Done when:* an exhibition template lists its works, and a category its
+      posts, with no code that names either object.
+- [x] **5. Template lookup.** After 4. `<object>.eta` and `<object>-list.eta`,
+      falling back to `item.eta` and `list.eta`; `home.eta` for the home record.
+      *Done when:* a new object with a slug renders with the generic templates
+      and no theme change.
+- [x] **6. The blog as configuration.** After 5. The scaffolder writes the
+      blog's collections; `routes.posts`, `categories`, `tags` and `homeSlug`
+      are removed, and the loader stops fetching objects by name.
+      *Done when:* the reference site serves exactly the URLs it serves today,
+      checked by a test over the full route list.
+
+## Next: languages
+
+The app config now declares `locales`, and translated fields store one text per
+locale. scms still has its own unused `langs` and `defaultLang`.
+
+- [ ] **1. One list of languages.** scms reads `locales` from `/config`;
+      `langs` and `defaultLang` leave `scms.config.json`, and a config that
+      still sets them gets an error naming `locales`.
+- [ ] **2. Languages in URLs.** Decide prefixing (every language, or all but
+      the default) in an ADR; the resolver adds the prefix in both directions.
+      *Done when:* every page exists once per language and links stay within
+      the page's language.
+- [ ] **3. Translated rendering.** Translated fields resolve to the page's
+      language with fallback to the default; pages carry `hreflang`
+      alternates.
+      *Done when:* a record with no Hungarian text renders its English text on
+      the Hungarian page, and nothing renders `[object Object]`.
 
 ## Then: `scms build`
 

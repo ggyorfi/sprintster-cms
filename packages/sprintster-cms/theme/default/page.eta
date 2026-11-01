@@ -1,4 +1,4 @@
 <article class="page">
   <h1><%= it.page.title %></h1>
-  <%~ it.page.content %>
+  <%~ it.page.body %>
 </article>

@@ -18,7 +18,7 @@ describe('parseSiteConfig', () => {
       theme: 'default',
       langs: ['en'],
       defaultLang: 'en',
-      routes: { posts: 'blog', categories: 'categories', tags: 'tags', homeSlug: 'home' },
+      collections: {},
       images: { widths: [480, 768, 1200, 1920], formats: ['avif', 'webp'], quality: 75, cacheDir: '.scms/cache' },
       pagination: { perPage: 10 },
       server: { port: 4000, admin: '/admin', api: '/api', assets: '/assets', preview: '/preview' },
@@ -34,18 +34,9 @@ describe('parseSiteConfig', () => {
     expect(() => parseSiteConfig({ server: { admin: '/api' } })).toThrow(/must differ/);
   });
 
-  it('rejects a site route that collides with a server prefix', () => {
-    expect(() => parseSiteConfig({ routes: { posts: 'admin' } })).toThrow(/collide/);
-  });
-
   it('keeps sibling defaults when a nested key is overridden', () => {
-    const config = parseSiteConfig({ routes: { posts: 'articles' } });
-    expect(config.routes).toEqual({
-      posts: 'articles',
-      categories: 'categories',
-      tags: 'tags',
-      homeSlug: 'home',
-    });
+    const config = parseSiteConfig({ server: { port: 5000 } });
+    expect(config.server).toEqual({ port: 5000, admin: '/admin', api: '/api', assets: '/assets', preview: '/preview' });
   });
 
   it('rejects an unknown key by name', () => {

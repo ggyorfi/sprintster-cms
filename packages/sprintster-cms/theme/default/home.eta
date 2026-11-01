@@ -1,7 +1,7 @@
 <article class="home">
-  <%~ it.page.content %>
+  <%~ it.page.body %>
 </article>
 <section class="recent">
   <h2>Latest posts</h2>
-  <%~ include("_post-list", { posts: it.posts.slice(0, 5) }) %>
+  <%~ include("_post-list", { posts: fallback(it.data.post, []).slice(0, 5) }) %>
 </section>

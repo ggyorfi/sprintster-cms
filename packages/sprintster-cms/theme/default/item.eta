@@ -1,0 +1,4 @@
+<article class="item">
+  <h1><%= fallback(it.page.title, fallback(it.page.name, it.page.slug)) %></h1>
+  <% if (it.page.body) { %><%~ it.page.body %><% } %>
+</article>

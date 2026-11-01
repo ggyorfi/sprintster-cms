@@ -130,6 +130,18 @@ export function where(value: unknown, key: string, wanted?: unknown): unknown[] 
   });
 }
 
+// Liquid's sort: by a property when given, items missing it last.
+export function sort(value: unknown, key?: string): unknown[] {
+  if (!Array.isArray(value)) return [];
+  const of = (item: unknown): unknown => (key === undefined ? item : (item as Record<string, unknown>)?.[key]);
+  return [...value].sort((a, b) => {
+    const [x, y] = [of(a), of(b)];
+    if (isBlank(x) || isBlank(y)) return Number(isBlank(x)) - Number(isBlank(y));
+    if (typeof x === 'number' && typeof y === 'number') return x - y;
+    return String(x).localeCompare(String(y));
+  });
+}
+
 // 'default' is a reserved word, so the registry name and the exported binding differ here alone.
 export const filters = {
   date,
@@ -144,6 +156,7 @@ export const filters = {
   downcase,
   slugify,
   where,
+  sort,
 } as const;
 
 export type Filters = typeof filters;

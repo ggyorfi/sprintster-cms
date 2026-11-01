@@ -1,73 +1,42 @@
-import type { SiteConfig } from './config.js';
-import type { Resolved, SiteContent } from './content.js';
+import type { ObjectConfig, PropertyConfig } from 'sprintster';
+import { inLocale, type Resolved, type SiteContent } from './content.js';
 import type { Row } from './daemon.js';
-import { strip_html, truncatewords } from './filters.js';
 import type { ImageSeam, RenderedImage } from './images.js';
 import { urlFor, type UrlSpace } from './routes.js';
 
-export interface TermView {
+export interface RecordView {
   id: string;
-  name: string;
-  slug: string;
-  url: string;
-  description: string | null;
-}
-
-export interface NavView {
-  label: string;
-  url: string;
-  group: string;
+  object: string;
+  url: string | null;
+  referencedBy?: Record<string, RecordView[]>;
+  [field: string]: unknown;
 }
 
 export interface SiteView {
-  title: string;
-  tagline: string | null;
-  description: string | null;
-  url: string | null;
-  twitter: string | null;
-  github: string | null;
-  nav: NavView[];
-  footerNav: NavView[];
-  categories: TermView[];
-  tags: TermView[];
+  title: string | null;
   time: string;
-}
-
-export interface ResourceView {
-  kind: 'post' | 'page';
-  id: string;
-  title: string;
-  slug: string;
-  url: string;
-  date: string | null;
-  excerpt: string;
-  content: string;
-  image: RenderedImage | null;
-  category: TermView | null;
-  tags: TermView[];
-  seoTitle: string | null;
-  seoDescription: string | null;
 }
 
 export interface PaginatorView {
   page: number;
   total_pages: number;
-  total_posts: number;
-  posts: ResourceView[];
+  total_records: number;
+  records: RecordView[];
   previous_page_path: string | null;
   next_page_path: string | null;
 }
 
 export interface TemplateData {
   site: SiteView;
-  page: ResourceView | null;
-  term: TermView | null;
-  posts: ResourceView[];
+  page: RecordView | null;
+  records: RecordView[];
   paginator: PaginatorView | null;
+  collection: string | null;
+  // A singleton is its one record.
+  data: Record<string, RecordView[] | RecordView | null>;
 }
 
 export interface ViewContext {
-  site: SiteConfig;
   content: SiteContent;
   space: UrlSpace;
   images: ImageSeam;
@@ -75,125 +44,140 @@ export interface ViewContext {
   now?: Date;
 }
 
-function text(row: Row, key: string): string | null {
-  const value = row[key];
-  return typeof value === 'string' && value !== '' ? value : null;
-}
-
-function refsOf(row: Row, property: string): string[] {
-  const value = row[property];
+function idsOf(value: unknown): string[] {
   if (typeof value === 'string') return [value];
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
 }
 
-function termView(row: Row, kind: 'category' | 'tag', space: UrlSpace): TermView {
-  const slug = text(row, 'slug') ?? '';
-  return {
-    id: row.id,
-    name: text(row, 'name') ?? slug,
-    slug,
-    url: urlFor({ kind, slug }, space),
-    description: text(row, 'description'),
-  };
+function isTranslated(prop: PropertyConfig): boolean {
+  return (prop.type === 'text' || prop.type === 'markdown') && (prop as { translated?: boolean }).translated === true;
 }
 
-function imageOf(row: Row, property: string, ctx: ViewContext): RenderedImage | null {
-  const [id] = refsOf(row, property);
-  return id === undefined ? null : ctx.images({ assetId: id, alt: '', transform: {} });
-}
+export function createViews(ctx: ViewContext) {
+  const { content } = ctx;
+  const objects = new Map<string, ObjectConfig>(content.objects.map((o) => [o.name, o]));
+  const collectionOf = new Map(content.collections.map((c) => [c.object, c]));
+  const rowById = new Map<string, Map<string, Row>>(
+    [...content.rows].map(([name, rows]) => [name, new Map(rows.map((r) => [r.id, r]))]),
+  );
+  const memo = new Map<string, RecordView>();
 
-export function resourceView(row: Row, kind: 'post' | 'page', ctx: ViewContext): ResourceView {
-  const slug = text(row, 'slug') ?? '';
-  const content = ctx.renderMarkdown(typeof row['body'] === 'string' ? row['body'] : '');
-  const categoryId = refsOf(row, 'category')[0];
-  const category = ctx.content.categories.find((c) => c.id === categoryId);
-  const tagIds = new Set(refsOf(row, 'tags'));
-  return {
-    kind,
-    id: row.id,
-    title: text(row, 'title') ?? slug,
-    slug,
-    url: urlFor(kind === 'post' ? { kind: 'post', slug } : { kind: 'page', slug }, ctx.space),
-    date: text(row, 'publishedAt'),
-    excerpt: text(row, 'excerpt') ?? truncatewords(strip_html(content), 40),
-    content,
-    image: imageOf(row, 'cover', ctx) ?? imageOf(row, 'ogImage', ctx),
-    category: category === undefined ? null : termView(category, 'category', ctx.space),
-    tags: ctx.content.tags.filter((t) => tagIds.has(t.id)).map((t) => termView(t, 'tag', ctx.space)),
-    seoTitle: text(row, 'seoTitle'),
-    seoDescription: text(row, 'seoDescription'),
-  };
-}
+  function image(id: string): RenderedImage | null {
+    return ctx.images({ assetId: id, alt: '', transform: {} });
+  }
 
-function navView(rows: Row[], group: string, ctx: ViewContext): NavView[] {
-  return rows
-    .filter((r) => r['group'] === group)
-    .map((r) => {
-      const [pageId] = refsOf(r, 'page');
-      const target = ctx.content.pages.find((p) => p.id === pageId);
-      const url =
-        target === undefined
-          ? text(r, 'url') ?? '#'
-          : urlFor({ kind: 'page', slug: text(target, 'slug') ?? '' }, ctx.space);
-      return { label: text(r, 'label') ?? '', url, group };
-    });
-}
+  function field(prop: PropertyConfig, raw: unknown, depth: number): unknown {
+    const value = isTranslated(prop) ? inLocale(raw, content.locales) : raw;
+    if (prop.type === 'markdown') return ctx.renderMarkdown(typeof value === 'string' ? value : '');
+    if (prop.type !== 'ref' && prop.type !== 'refs') return value;
+    const ids = idsOf(value);
+    if (prop.target === content.assetsObject) {
+      const pictures = ids.map(image).filter((p): p is RenderedImage => p !== null);
+      return prop.type === 'ref' ? (pictures[0] ?? null) : pictures;
+    }
+    // One level only, so a cycle of refs cannot recurse.
+    if (depth > 0) return value;
+    const targets = ids
+      .map((id) => rowById.get(prop.target)?.get(id))
+      .filter((r): r is Row => r !== undefined)
+      .map((r) => view(prop.target, r, depth + 1));
+    return prop.type === 'ref' ? (targets[0] ?? null) : targets;
+  }
 
-export function siteView(ctx: ViewContext): SiteView {
-  const settings = ctx.content.settings;
-  const read = (key: string): string | null => (settings === null ? null : text(settings, key));
-  return {
-    title: read('siteTitle') ?? 'Untitled site',
-    tagline: read('tagline'),
-    description: read('description'),
-    url: read('baseUrl'),
-    twitter: read('twitter'),
-    github: read('github'),
-    nav: navView(ctx.content.navItems, 'main', ctx),
-    footerNav: navView(ctx.content.navItems, 'footer', ctx),
-    categories: ctx.content.categories.map((c) => termView(c, 'category', ctx.space)),
-    tags: ctx.content.tags.map((t) => termView(t, 'tag', ctx.space)),
-    time: (ctx.now ?? new Date()).toISOString(),
-  };
+  function view(objectName: string, row: Row, depth = 0): RecordView {
+    const key = `${objectName}:${row.id}:${depth}`;
+    const cached = memo.get(key);
+    if (cached !== undefined) return cached;
+    const out: RecordView = { id: row.id, object: objectName, url: null };
+    for (const prop of objects.get(objectName)?.properties ?? []) {
+      if (prop.name === 'id') continue;
+      out[prop.name] = field(prop, row[prop.name], depth);
+    }
+    if (collectionOf.has(objectName) && typeof row['slug'] === 'string') {
+      out.url = urlFor({ kind: 'item', collection: objectName, slug: row['slug'] }, ctx.space);
+    }
+    memo.set(key, out);
+    return out;
+  }
+
+  function referencedBy(objectName: string, row: Row): Record<string, RecordView[]> {
+    const out: Record<string, RecordView[]> = {};
+    for (const c of content.collections) {
+      const props = (objects.get(c.object)?.properties ?? []).filter(
+        (p) => (p.type === 'ref' || p.type === 'refs') && p.target === objectName,
+      );
+      if (props.length === 0) continue;
+      const hits = (content.rows.get(c.object) ?? []).filter((r) => props.some((p) => idsOf(r[p.name]).includes(row.id)));
+      if (hits.length > 0) out[c.object] = hits.map((r) => view(c.object, r, 1));
+    }
+    return out;
+  }
+
+  function full(objectName: string, row: Row): RecordView {
+    return { ...view(objectName, row), referencedBy: referencedBy(objectName, row) };
+  }
+
+  function data(): TemplateData['data'] {
+    const out: TemplateData['data'] = {};
+    for (const obj of content.objects) {
+      const rows = (content.rows.get(obj.name) ?? []).map((r) => view(obj.name, r));
+      out[obj.name] = obj.singleton === true ? (rows[0] ?? null) : rows;
+    }
+    return out;
+  }
+
+  return { full, data };
 }
 
 export interface Rendering {
-  template: string;
+  // Most specific first.
+  templates: string[];
   data: TemplateData;
 }
 
+function baseData(ctx: ViewContext, views: ReturnType<typeof createViews>): TemplateData {
+  return {
+    site: { title: ctx.content.title, time: (ctx.now ?? new Date()).toISOString() },
+    page: null,
+    records: [],
+    paginator: null,
+    collection: null,
+    data: views.data(),
+  };
+}
+
+export function notFoundData(ctx: ViewContext): TemplateData {
+  return baseData(ctx, createViews(ctx));
+}
+
 export function viewFor(resolved: Resolved, ctx: ViewContext): Rendering {
-  const site = siteView(ctx);
-  const base: TemplateData = { site, page: null, term: null, posts: [], paginator: null };
+  const views = createViews(ctx);
+  const object = resolved.collection.object;
+  const base = { ...baseData(ctx, views), collection: object };
 
   switch (resolved.kind) {
     case 'home':
-      return { template: 'home', data: { ...base, page: resourceView(resolved.page, 'page', ctx), posts: ctx.content.posts.map((p) => resourceView(p, 'post', ctx)) } };
-    case 'page':
-      return { template: 'page', data: { ...base, page: resourceView(resolved.page, 'page', ctx) } };
-    case 'post':
-      return { template: 'post', data: { ...base, page: resourceView(resolved.post, 'post', ctx) } };
-    case 'postIndex': {
-      const posts = resolved.posts.map((p) => resourceView(p, 'post', ctx));
+      return { templates: ['home', object, 'item'], data: { ...base, page: views.full(object, resolved.record) } };
+    case 'item':
+      return { templates: [object, 'item'], data: { ...base, page: views.full(object, resolved.record) } };
+    case 'list': {
+      const records = resolved.records.map((r) => views.full(object, r));
+      const link = (page: number) => urlFor({ kind: 'list', collection: object, page }, ctx.space);
       return {
-        template: 'index',
+        templates: [`${object}-list`, 'list'],
         data: {
           ...base,
-          posts,
+          records,
           paginator: {
             page: resolved.page,
             total_pages: resolved.pageCount,
-            total_posts: ctx.content.posts.length,
-            posts,
-            previous_page_path: resolved.page > 1 ? urlFor({ kind: 'postIndex', page: resolved.page - 1 }, ctx.space) : null,
-            next_page_path: resolved.page < resolved.pageCount ? urlFor({ kind: 'postIndex', page: resolved.page + 1 }, ctx.space) : null,
+            total_records: resolved.total,
+            records,
+            previous_page_path: resolved.page > 1 ? link(resolved.page - 1) : null,
+            next_page_path: resolved.page < resolved.pageCount ? link(resolved.page + 1) : null,
           },
         },
       };
     }
-    case 'category':
-      return { template: 'archive', data: { ...base, term: termView(resolved.category, 'category', ctx.space), posts: resolved.posts.map((p) => resourceView(p, 'post', ctx)) } };
-    case 'tag':
-      return { template: 'archive', data: { ...base, term: termView(resolved.tag, 'tag', ctx.space), posts: resolved.posts.map((p) => resourceView(p, 'post', ctx)) } };
   }
 }

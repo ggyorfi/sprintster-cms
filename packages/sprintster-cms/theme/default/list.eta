@@ -1,0 +1,6 @@
+<ul class="item-list">
+  <% it.records.forEach(function (record) { %>
+  <li><a href="<%= record.url %>"><%= fallback(record.title, fallback(record.name, record.slug)) %></a></li>
+  <% }) %>
+</ul>
+<%~ include("_pagination", { paginator: it.paginator }) %>

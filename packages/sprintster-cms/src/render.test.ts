@@ -1,0 +1,137 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import type { ObjectConfig } from 'sprintster';
+import { buildCollections } from './collections.js';
+import { parseSiteConfig } from './config.js';
+import { loadContent, resolve } from './content.js';
+import type { Daemon, Row } from './daemon.js';
+import { createRenderer } from './render.js';
+import { matchRoute, urlSpace } from './routes.js';
+import { loadTheme, type Theme } from './theme.js';
+import { createViews } from './viewmodel.js';
+import { blogObjects, blogSite, object } from './test-objects.js';
+
+function fakeDaemon(objects: ObjectConfig[], rows: Record<string, Row[]>, locales: string[] = []): Daemon {
+  return {
+    baseUrl: 'http://daemon',
+    objects,
+    locales,
+    object: (name) => objects.find((o) => o.name === name)!,
+    rows: async (name) => rows[name] ?? [],
+    asset: async () => ({ bytes: new Uint8Array(), contentType: 'image/png' }),
+  };
+}
+
+const now = new Date('2026-06-01T00:00:00Z');
+const post = (slug: string, extra: Partial<Row> = {}): Row => ({
+  id: `p-${slug}`,
+  title: slug,
+  slug,
+  body: `# ${slug}`,
+  status: 'published',
+  publishedAt: '2026-01-01T00:00:00Z',
+  category: 'c1',
+  tags: [],
+  ...extra,
+});
+
+const blogRows: Record<string, Row[]> = {
+  page: [{ id: 'home', title: 'Home', slug: 'home', body: 'Welcome', status: 'published' }],
+  post: [
+    post('old', { publishedAt: '2025-01-01T00:00:00Z' }),
+    post('new', { publishedAt: '2026-05-01T00:00:00Z' }),
+    post('draft', { status: 'draft' }),
+    post('future', { publishedAt: '2027-01-01T00:00:00Z' }),
+    post('gone', { removed: true }),
+  ],
+  category: [{ id: 'c1', name: 'Guides', slug: 'guides' }],
+  tag: [],
+  navItem: [],
+  settings: [{ id: 'settings', siteTitle: 'Harbour' }],
+};
+
+async function blog(preview = false) {
+  const site = parseSiteConfig(blogSite);
+  const collections = buildCollections(site, blogObjects);
+  const content = await loadContent(fakeDaemon(blogObjects, blogRows), collections, { preview, now });
+  const space = urlSpace(site, collections, preview);
+  return { site, content, space };
+}
+
+const theme = (): Theme => loadTheme('default', mkdtempSync(join(tmpdir(), 'scms-theme-')), false);
+
+describe('publishing', () => {
+  it('hides drafts, future and removed records, newest first', async () => {
+    const { content } = await blog();
+    expect(content.rows.get('post')!.map((r) => r['slug'])).toEqual(['new', 'old']);
+  });
+
+  it('shows drafts and future records under preview, never removed ones', async () => {
+    const { content } = await blog(true);
+    expect(content.rows.get('post')!.map((r) => r['slug']).sort()).toEqual(['draft', 'future', 'new', 'old']);
+  });
+});
+
+describe('rendering', () => {
+  async function render(path: string, preview = false) {
+    const { site, content, space } = await blog(preview);
+    const match = matchRoute(path, space);
+    const resolved = match === null ? null : resolve(match, content);
+    const renderer = createRenderer(theme(), site, content, space, { now });
+    return resolved === null ? null : renderer.page(resolved);
+  }
+
+  it('renders the home record at /', async () => {
+    expect(await render('/')).toContain('Welcome');
+  });
+
+  it('renders a post with its category link', async () => {
+    const html = (await render('/blog/new/'))!;
+    expect(html).toContain('<h1>new</h1>');
+    expect(html).toContain('href="/categories/guides/"');
+    expect(html).toContain('<title>new | Harbour</title>');
+  });
+
+  it("lists a category's posts through the refs pointing at it", async () => {
+    const html = (await render('/categories/guides/'))!;
+    expect(html).toContain('href="/blog/new/"');
+    expect(html).toContain('href="/blog/old/"');
+    expect(html).not.toContain('/blog/draft/');
+  });
+
+  it('falls back to the generic list template', async () => {
+    expect(await render('/categories/')).toContain('href="/categories/guides/"');
+  });
+
+  it('serves no draft outside preview', async () => {
+    expect(await render('/blog/draft/')).toBeNull();
+    expect(await render('/preview/blog/draft/', true)).toContain('<h1>draft</h1>');
+  });
+
+  it('has no list page for the root collection', async () => {
+    expect(await render('/page/2/')).toBeNull();
+  });
+});
+
+describe('record views', () => {
+  it('resolves translations to the default locale and names the referring records', async () => {
+    const objects = [
+      object('work', 'works', [{ name: 'title', type: 'text', translated: true }, { name: 'slug', type: 'text' }, { name: 'exhibitions', type: 'refs', target: 'exhibition' }]),
+      object('exhibition', 'exhibitions', [{ name: 'title', type: 'text', translated: true }, { name: 'slug', type: 'text' }]),
+    ];
+    const rows = {
+      work: [{ id: 'w1', title: { en: 'Mask', hu: 'Maszk' }, slug: 'mask', exhibitions: ['e1'] }],
+      exhibition: [{ id: 'e1', title: { hu: 'Csak magyar' }, slug: 'show' }],
+    };
+    const site = parseSiteConfig({});
+    const collections = buildCollections(site, objects);
+    const content = await loadContent(fakeDaemon(objects, rows, ['en', 'hu']), collections, { now });
+    const views = createViews({ content, space: urlSpace(site, collections), images: () => null, renderMarkdown: (s) => s });
+    const exhibition = views.full('exhibition', rows.exhibition[0]!);
+    expect(exhibition.title).toBeNull();
+    expect(exhibition.referencedBy!['work']!.map((w) => [w.title, w.url])).toEqual([['Mask', '/works/mask/']]);
+    expect(views.full('work', rows.work[0]!)['exhibitions']).toEqual([expect.objectContaining({ slug: 'show', url: '/exhibitions/show/' })]);
+  });
+});

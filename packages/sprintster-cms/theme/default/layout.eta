@@ -1,18 +1,21 @@
+<% const settings = it.data.settings || {} %>
+<% const siteTitle = fallback(settings.siteTitle, fallback(it.site.title, "Untitled site")) %>
+<% const menu = sort(fallback(it.data.navItem, []), "order") %>
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title><%= it.page ? fallback(it.page.seoTitle, it.page.title) + " | " + it.site.title : it.site.title %></title>
+    <title><%= it.page ? fallback(it.page.seoTitle, fallback(it.page.title, it.page.slug)) + " | " + siteTitle : siteTitle %></title>
     <% if (it.page && it.page.seoDescription) { %><meta name="description" content="<%= it.page.seoDescription %>"><% } %>
     <link rel="stylesheet" href="/_theme/style.css">
   </head>
   <body>
     <header class="site-header">
-      <a class="site-title" href="/"><%= it.site.title %></a>
-      <% if (it.site.tagline) { %><p class="site-tagline"><%= it.site.tagline %></p><% } %>
+      <a class="site-title" href="/"><%= siteTitle %></a>
+      <% if (settings.tagline) { %><p class="site-tagline"><%= settings.tagline %></p><% } %>
       <nav class="site-nav">
-        <% it.site.nav.forEach(function (item) { %><a href="<%= item.url %>"><%= item.label %></a><% }) %>
+        <% where(menu, "group", "main").forEach(function (item) { %><a href="<%= item.page ? item.page.url : fallback(item.url, "#") %>"><%= item.label %></a><% }) %>
       </nav>
     </header>
     <main class="site-main">
@@ -20,9 +23,9 @@
     </main>
     <footer class="site-footer">
       <nav>
-        <% it.site.footerNav.forEach(function (item) { %><a href="<%= item.url %>"><%= item.label %></a><% }) %>
+        <% where(menu, "group", "footer").forEach(function (item) { %><a href="<%= item.page ? item.page.url : fallback(item.url, "#") %>"><%= item.label %></a><% }) %>
       </nav>
-      <p><%= it.site.title %></p>
+      <p><%= siteTitle %></p>
     </footer>
   </body>
 </html>

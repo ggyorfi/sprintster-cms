@@ -1,0 +1,3 @@
+<h1>Posts</h1>
+<%~ include("_post-list", { posts: it.records }) %>
+<%~ include("_pagination", { paginator: it.paginator }) %>

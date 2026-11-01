@@ -1,6 +1,7 @@
 import { serve as listen } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono, type Context } from 'hono';
+import { buildCollections, type Collection } from './collections.js';
 import { loadSiteConfig, type SiteConfig } from './config.js';
 import { loadContent, resolve } from './content.js';
 import { connectDaemon, type Daemon } from './daemon.js';
@@ -33,6 +34,7 @@ async function forward(target: string, c: Context): Promise<Response> {
 
 export function createSiteApp(site: SiteConfig, daemon: Daemon, theme: Theme, media: Media): Hono {
   const app = new Hono();
+  const collections: Collection[] = buildCollections(site, daemon.objects);
   const { api, admin, assets, preview } = site.server;
 
   app.all(`${api}/*`, (c) => {
@@ -61,11 +63,11 @@ export function createSiteApp(site: SiteConfig, daemon: Daemon, theme: Theme, me
   app.get('*', async (c) => {
     const pathname = new URL(c.req.url).pathname;
     const isPreview = underPrefix(pathname, preview);
-    const space = urlSpace(site, isPreview);
+    const space = urlSpace(site, collections, isPreview);
     const match = matchRoute(pathname, space);
-    const content = await loadContent(daemon, { preview: isPreview });
+    const content = await loadContent(daemon, collections, { preview: isPreview });
     const renderer = createRenderer(theme, site, content, space, { images: await media.seam(content) });
-    const resolved = match === null ? null : resolve(match, content, site);
+    const resolved = match === null ? null : resolve(match, content);
     if (resolved === null) return c.html(renderer.notFound(), 404);
     return c.html(renderer.page(resolved));
   });

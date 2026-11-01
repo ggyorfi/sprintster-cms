@@ -5,8 +5,15 @@ describe('buildFiles', () => {
   it('emits the expected files', () => {
     const files = buildFiles({ name: 'my-site', backend: 'sqlite' });
     expect(Object.keys(files).sort()).toEqual(
-      ['.gitignore', 'README.md', 'package.json', 'pnpm-workspace.yaml', 'sprintster.config.json'].sort(),
+      ['.gitignore', 'README.md', 'package.json', 'pnpm-workspace.yaml', 'scms.config.json', 'sprintster.config.json'].sort(),
     );
+  });
+
+  it('puts pages at the root with home at / and posts under /blog', () => {
+    const files = buildFiles({ name: 'my-site', backend: 'sqlite' });
+    expect(JSON.parse(files['scms.config.json']!)).toEqual({
+      collections: { page: { path: '/', home: 'home' }, post: { path: '/blog', sort: '-publishedAt' } },
+    });
   });
 
   it('produces a JSON config with the six CMS objects', () => {

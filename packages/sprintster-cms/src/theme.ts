@@ -7,6 +7,7 @@ import type { TemplateData } from './viewmodel.js';
 
 export interface Theme {
   dir: string;
+  has(template: string): boolean;
   render(template: string, data: TemplateData): string;
 }
 
@@ -29,6 +30,7 @@ export function loadTheme(name: string, root: string, cache = true): Theme {
   const eta = new Eta({ views: dir, cache, functionHeader: FUNCTION_HEADER, autoTrim: false });
   return {
     dir,
+    has: (template) => existsSync(join(dir, `${template}.eta`)),
     render(template, data) {
       const withFilters = { ...data, filters };
       const content = eta.render(template, withFilters);

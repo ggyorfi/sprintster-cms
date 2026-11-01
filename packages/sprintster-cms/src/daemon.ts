@@ -24,6 +24,9 @@ export interface Daemon {
   baseUrl: string;
   objects: readonly ObjectConfig[];
   assetsObject?: string;
+  title?: string;
+  // The app's languages, default first; empty when it declares none.
+  locales: readonly string[];
   object(name: string): ObjectConfig;
   rows(objectName: string): Promise<Row[]>;
   asset(hash: string): Promise<Asset>;
@@ -44,6 +47,8 @@ const ServerBlock = z.object({
 const ConfigResponse = z.object({
   objects: z.array(ObjectConfig).min(1),
   assets: z.string().min(1).optional(),
+  title: z.string().min(1).optional(),
+  locales: z.array(z.string().min(1)).default([]),
 });
 
 export function resolveDaemonUrl(root: string = process.cwd(), env = 'dev'): string {
@@ -83,7 +88,7 @@ export async function connectDaemon(opts: ConnectOptions = {}): Promise<Daemon> 
 
   const res = await fetchImpl(`${baseUrl}/config`);
   if (!res.ok) throw new Error(`GET ${baseUrl}/config failed with status ${res.status}`);
-  const { objects, assets } = ConfigResponse.parse(await res.json());
+  const { objects, assets, title, locales } = ConfigResponse.parse(await res.json());
   const byName = new Map(objects.map((o) => [o.name, o]));
   const client = createApiClient(baseUrl, { objects, fetch: fetchImpl });
 
@@ -99,6 +104,8 @@ export async function connectDaemon(opts: ConnectOptions = {}): Promise<Daemon> 
     baseUrl,
     objects,
     ...(assets === undefined ? {} : { assetsObject: assets }),
+    ...(title === undefined ? {} : { title }),
+    locales,
     object,
     rows: async (objectName) => {
       object(objectName);

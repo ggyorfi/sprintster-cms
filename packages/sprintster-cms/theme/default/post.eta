@@ -1,8 +1,8 @@
 <article class="post">
   <h1><%= it.page.title %></h1>
   <%~ include("_post-meta", { post: it.page }) %>
-  <% if (it.page.image) { %>
-  <%~ include("_picture", { image: it.page.image, class: "cover" }) %>
+  <% if (it.page.cover) { %>
+  <%~ include("_picture", { image: it.page.cover, class: "cover" }) %>
   <% } %>
-  <%~ it.page.content %>
+  <%~ it.page.body %>
 </article>

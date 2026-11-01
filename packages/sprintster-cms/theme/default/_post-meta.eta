@@ -1,5 +1,5 @@
 <p class="post-meta">
-  <% if (it.post.date) { %><time datetime="<%= it.post.date %>"><%= date(it.post.date, "%B %e, %Y") %></time><% } %>
-  <% if (it.post.category) { %><a class="category" href="<%= it.post.category.url %>"><%= it.post.category.name %></a><% } %>
-  <% it.post.tags.forEach(function (tag) { %><a class="tag" href="<%= tag.url %>"><%= tag.name %></a><% }) %>
+  <% if (it.post.publishedAt) { %><time datetime="<%= it.post.publishedAt %>"><%= date(it.post.publishedAt, "%B %e, %Y") %></time><% } %>
+  <% if (it.post.category && it.post.category.url) { %><a class="category" href="<%= it.post.category.url %>"><%= it.post.category.name %></a><% } %>
+  <% fallback(it.post.tags, []).forEach(function (tag) { %><a class="tag" href="<%= tag.url %>"><%= tag.name %></a><% }) %>
 </p>

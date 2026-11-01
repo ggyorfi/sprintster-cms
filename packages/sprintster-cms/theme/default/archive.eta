@@ -1,3 +1,0 @@
-<h1><%= it.term.name %></h1>
-<% if (it.term.description) { %><p class="term-description"><%= it.term.description %></p><% } %>
-<%~ include("_post-list", { posts: it.posts }) %>
