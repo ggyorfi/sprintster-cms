@@ -24,7 +24,7 @@ function fail(message: string): never {
 }
 
 // An object with a slug is a collection at /<its route>; scms.config.json only overrides.
-export function buildCollections(site: SiteConfig, objects: readonly ObjectConfig[]): Collection[] {
+export function buildCollections(site: SiteConfig, objects: readonly ObjectConfig[], locales: readonly string[] = []): Collection[] {
   const byName = new Map(objects.map((o) => [o.name, o]));
   for (const [name, override] of Object.entries(site.collections)) {
     const obj = byName.get(name);
@@ -64,6 +64,10 @@ export function buildCollections(site: SiteConfig, objects: readonly ObjectConfi
   if (roots.length > 1) fail(`only one collection can be at '/'; ${roots.map((c) => `'${c.object}'`).join(' and ')} both are`);
   for (const c of collections) {
     if (c.home !== null && c.path !== '/') fail(`'${c.object}' sets home but is at '${c.path}'; home belongs to the '/' collection`);
+    const first = c.path.split('/')[1];
+    if (first !== undefined && locales.slice(1).includes(first)) {
+      fail(`'${c.object}' at '${c.path}' starts with the language prefix '/${first}'`);
+    }
     for (const prefix of prefixesOf(site.server)) {
       if (inside(c.path, prefix) || inside(prefix, c.path)) fail(`'${c.object}' at '${c.path}' collides with the server prefix '${prefix}'`);
     }

@@ -83,25 +83,26 @@ collection, and `scms.config.json` only overrides.
       *Done when:* the reference site serves exactly the URLs it serves today,
       checked by a test over the full route list.
 
-## Next: languages
+## Done: languages
 
 The app config now declares `locales`, and translated fields store one text per
 locale. scms still has its own unused `langs` and `defaultLang`.
 
-- [ ] **1. One list of languages.** scms reads `locales` from `/config`;
+- [x] **1. One list of languages.** scms reads `locales` from `/config`;
       `langs` and `defaultLang` leave `scms.config.json`, and a config that
       still sets them gets an error naming `locales`.
-- [ ] **2. Languages in URLs.** Decide prefixing (every language, or all but
+      [ADR 3](docs/ADR/0003-languages-in-urls.md) records the decisions.
+- [x] **2. Languages in URLs.** Decide prefixing (every language, or all but
       the default) in an ADR; the resolver adds the prefix in both directions.
       *Done when:* every page exists once per language and links stay within
       the page's language.
-- [ ] **3. Translated rendering.** Translated fields resolve to the page's
+- [x] **3. Translated rendering.** Translated fields resolve to the page's
       language with fallback to the default; pages carry `hreflang`
       alternates.
       *Done when:* a record with no Hungarian text renders its English text on
       the Hungarian page, and nothing renders `[object Object]`.
 
-## Then: `scms build`
+## Next: `scms build`
 
 Walk the route table, call the same renderer, write files. This is the test of
 the claim that the router subsumes the generator.

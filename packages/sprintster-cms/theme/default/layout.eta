@@ -2,18 +2,21 @@
 <% const siteTitle = fallback(settings.siteTitle, fallback(it.site.title, "Untitled site")) %>
 <% const menu = sort(fallback(it.data.navItem, []), "order") %>
 <!doctype html>
-<html lang="en">
+<html lang="<%= fallback(it.site.lang, "en") %>">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><%= it.page ? fallback(it.page.seoTitle, fallback(it.page.title, it.page.slug)) + " | " + siteTitle : siteTitle %></title>
     <% if (it.page && it.page.seoDescription) { %><meta name="description" content="<%= it.page.seoDescription %>"><% } %>
+    <% if (size(it.alternates) > 1) { it.alternates.forEach(function (alt) { %><link rel="alternate" hreflang="<%= alt.lang %>" href="<%= alt.url %>">
+    <% }) } %>
     <link rel="stylesheet" href="/_theme/style.css">
   </head>
   <body>
     <header class="site-header">
-      <a class="site-title" href="/"><%= siteTitle %></a>
+      <a class="site-title" href="<%= it.site.home %>"><%= siteTitle %></a>
       <% if (settings.tagline) { %><p class="site-tagline"><%= settings.tagline %></p><% } %>
+      <% if (size(it.alternates) > 1) { %><nav class="site-langs"><% it.alternates.forEach(function (alt) { %><a href="<%= alt.url %>" hreflang="<%= alt.lang %>"<% if (alt.lang === it.site.lang) { %> aria-current="true"<% } %>><%= alt.lang %></a><% }) %></nav><% } %>
       <nav class="site-nav">
         <% where(menu, "group", "main").forEach(function (item) { %><a href="<%= item.page ? item.page.url : fallback(item.url, "#") %>"><%= item.label %></a><% }) %>
       </nav>

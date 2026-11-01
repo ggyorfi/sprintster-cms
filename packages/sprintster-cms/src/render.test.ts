@@ -56,7 +56,7 @@ async function blog(preview = false) {
   const site = parseSiteConfig(blogSite);
   const collections = buildCollections(site, blogObjects);
   const content = await loadContent(fakeDaemon(blogObjects, blogRows), collections, { preview, now });
-  const space = urlSpace(site, collections, preview);
+  const space = urlSpace(site, collections, { preview });
   return { site, content, space };
 }
 
@@ -133,5 +133,52 @@ describe('record views', () => {
     expect(exhibition.title).toBeNull();
     expect(exhibition.referencedBy!['work']!.map((w) => [w.title, w.url])).toEqual([['Mask', '/works/mask/']]);
     expect(views.full('work', rows.work[0]!)['exhibitions']).toEqual([expect.objectContaining({ slug: 'show', url: '/exhibitions/show/' })]);
+  });
+});
+
+describe('languages', () => {
+  const objects = [
+    object('work', 'works', [{ name: 'title', type: 'text', translated: true }, { name: 'slug', type: 'text' }, { name: 'body', type: 'markdown', translated: true }]),
+  ];
+  const rows = {
+    work: [
+      { id: 'w1', title: { en: 'Mask', hu: 'Maszk' }, slug: 'mask', body: { en: 'English text' } },
+      { id: 'w2', title: { en: 'Gold' }, slug: 'gold', body: {} },
+    ],
+  };
+
+  async function render(path: string) {
+    const site = parseSiteConfig({});
+    const locales = ['en', 'hu'];
+    const collections = buildCollections(site, objects, locales);
+    const content = await loadContent(fakeDaemon(objects, rows, locales), collections, { now });
+    const { languageOf } = await import('./routes.js');
+    const lang = languageOf(path, '', locales) ?? undefined;
+    const space = urlSpace(site, collections, { locales, ...(lang === undefined ? {} : { lang }) });
+    const match = matchRoute(path, space);
+    const resolved = match === null ? null : resolve(match, content);
+    return resolved === null ? null : createRenderer(theme(), site, content, space, { now }).page(resolved);
+  }
+
+  it('renders the page language, falling back to the default per field', async () => {
+    const html = (await render('/hu/works/mask/'))!;
+    expect(html).toContain('<html lang="hu">');
+    expect(html).toContain('<h1>Maszk</h1>');
+    expect(html).toContain('English text');
+    expect(html).not.toContain('[object Object]');
+  });
+
+  it('keeps links in the page language and lists every language as an alternate', async () => {
+    const html = (await render('/hu/works/'))!;
+    expect(html).toContain('href="/hu/works/mask/"');
+    expect(html).toContain('href="/hu/works/gold/"');
+    expect(html).toContain('<link rel="alternate" hreflang="en" href="/works/">');
+    expect(html).toContain('<link rel="alternate" hreflang="hu" href="/hu/works/">');
+  });
+
+  it('serves the default language without a prefix', async () => {
+    const html = (await render('/works/mask/'))!;
+    expect(html).toContain('<h1>Mask</h1>');
+    expect(html).toContain('<html lang="en">');
   });
 });

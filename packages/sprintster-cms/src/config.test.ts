@@ -16,8 +16,6 @@ describe('parseSiteConfig', () => {
       configVersion: '1',
       outDir: 'dist',
       theme: 'default',
-      langs: ['en'],
-      defaultLang: 'en',
       collections: {},
       images: { widths: [480, 768, 1200, 1920], formats: ['avif', 'webp'], quality: 75, cacheDir: '.scms/cache' },
       pagination: { perPage: 10 },
@@ -51,20 +49,9 @@ describe('parseSiteConfig', () => {
     expect(() => parseSiteConfig({ images: { formats: ['gif'] } })).toThrow(/formats/);
   });
 
-  it('defaults defaultLang to the first declared language', () => {
-    expect(parseSiteConfig({ langs: ['fr', 'en'] }).defaultLang).toBe('fr');
-  });
-
-  it('keeps an explicit defaultLang', () => {
-    expect(parseSiteConfig({ langs: ['fr', 'en'], defaultLang: 'en' }).defaultLang).toBe('en');
-  });
-
-  it('rejects a defaultLang outside langs', () => {
-    expect(() => parseSiteConfig({ langs: ['fr'], defaultLang: 'de' })).toThrow(/defaultLang/);
-  });
-
-  it('rejects an empty language list', () => {
-    expect(() => parseSiteConfig({ langs: [] })).toThrow(/langs/);
+  it('points at app locales when a config still sets langs', () => {
+    expect(() => parseSiteConfig({ langs: ['en', 'hu'] })).toThrow(/moved to the app config as "locales"/);
+    expect(() => parseSiteConfig({ defaultLang: 'en' })).toThrow(/locales/);
   });
 });
 

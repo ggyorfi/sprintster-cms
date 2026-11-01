@@ -49,6 +49,12 @@ describe('buildCollections', () => {
     expect(() => build({ collections: { post: { path: '/' }, page: { path: '/' } } })).toThrow(/only one collection can be at '\/'/);
   });
 
+  it('rejects a path that starts with a language prefix', () => {
+    const site = parseSiteConfig({ collections: { post: { path: '/hu/posts' } } });
+    expect(() => buildCollections(site, blogObjects, ['en', 'hu'])).toThrow(/language prefix '\/hu'/);
+    expect(buildCollections(parseSiteConfig({ collections: { post: { path: '/en/posts' } } }), blogObjects, ['en', 'hu'])).toBeDefined();
+  });
+
   it('rejects a path on a server prefix', () => {
     expect(() => build({ collections: { post: { path: '/admin' } } })).toThrow(/server prefix '\/admin'/);
     expect(() => build({ collections: { post: { path: '/api/posts' } } })).toThrow(/server prefix '\/api'/);

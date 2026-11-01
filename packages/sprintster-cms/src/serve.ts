@@ -7,7 +7,7 @@ import { loadContent, resolve } from './content.js';
 import { connectDaemon, type Daemon } from './daemon.js';
 import { createMedia, type Media } from './media.js';
 import { createRenderer } from './render.js';
-import { matchRoute, urlSpace } from './routes.js';
+import { languageOf, matchRoute, urlSpace } from './routes.js';
 import { loadTheme, type Theme } from './theme.js';
 
 export interface ServeOptions {
@@ -34,7 +34,7 @@ async function forward(target: string, c: Context): Promise<Response> {
 
 export function createSiteApp(site: SiteConfig, daemon: Daemon, theme: Theme, media: Media): Hono {
   const app = new Hono();
-  const collections: Collection[] = buildCollections(site, daemon.objects);
+  const collections: Collection[] = buildCollections(site, daemon.objects, daemon.locales);
   const { api, admin, assets, preview } = site.server;
 
   app.all(`${api}/*`, (c) => {
@@ -63,7 +63,12 @@ export function createSiteApp(site: SiteConfig, daemon: Daemon, theme: Theme, me
   app.get('*', async (c) => {
     const pathname = new URL(c.req.url).pathname;
     const isPreview = underPrefix(pathname, preview);
-    const space = urlSpace(site, collections, isPreview);
+    const lang = languageOf(pathname, isPreview ? preview : '', daemon.locales);
+    const space = urlSpace(site, collections, {
+      preview: isPreview,
+      locales: daemon.locales,
+      ...(lang === null ? {} : { lang }),
+    });
     const match = matchRoute(pathname, space);
     const content = await loadContent(daemon, collections, { preview: isPreview });
     const renderer = createRenderer(theme, site, content, space, { images: await media.seam(content) });

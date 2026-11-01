@@ -9,10 +9,36 @@ export type RouteMatch =
 export interface UrlSpace {
   collections: readonly Collection[];
   base: string;
+  // Default first; empty for a site without languages.
+  locales: readonly string[];
+  lang: string | null;
 }
 
-export function urlSpace(site: SiteConfig, collections: readonly Collection[], preview = false): UrlSpace {
-  return { collections, base: preview ? site.server.preview : '' };
+export interface SpaceOptions {
+  preview?: boolean;
+  locales?: readonly string[];
+  lang?: string;
+}
+
+export function urlSpace(site: SiteConfig, collections: readonly Collection[], opts: SpaceOptions = {}): UrlSpace {
+  const locales = opts.locales ?? [];
+  return {
+    collections,
+    base: opts.preview === true ? site.server.preview : '',
+    locales,
+    lang: opts.lang ?? locales[0] ?? null,
+  };
+}
+
+function langPrefix(space: UrlSpace): string {
+  return space.lang === null || space.lang === space.locales[0] ? '' : `/${space.lang}`;
+}
+
+// The default language has no prefix; every other one is the first segment after the preview base.
+export function languageOf(pathname: string, base: string, locales: readonly string[]): string | null {
+  const rest = base !== '' && (pathname === base || pathname.startsWith(`${base}/`)) ? pathname.slice(base.length) : pathname;
+  const first = segments(rest)[0];
+  return first !== undefined && locales.slice(1).includes(first) ? first : (locales[0] ?? null);
 }
 
 function segments(pathname: string): string[] {
@@ -26,8 +52,9 @@ function pageNumber(segment: string | undefined): number | null {
 
 // The '/' collection is tried last, so '/works/' is never read as a root record slugged 'works'.
 export function matchRoute(pathname: string, space: UrlSpace): RouteMatch | null {
-  if (space.base !== '' && !(pathname === space.base || pathname.startsWith(`${space.base}/`))) return null;
-  const rest = space.base === '' ? pathname : pathname.slice(space.base.length);
+  const base = `${space.base}${langPrefix(space)}`;
+  if (base !== '' && !(pathname === base || pathname.startsWith(`${base}/`))) return null;
+  const rest = base === '' ? pathname : pathname.slice(base.length);
   const parts = segments(rest).map((s) => decodeURIComponent(s));
   if (parts.length === 0) return { kind: 'home' };
 
@@ -58,5 +85,6 @@ export function urlFor(match: RouteMatch, space: UrlSpace): string {
     if (match.kind === 'list') return match.page === 1 ? `${prefix}/` : `${prefix}/page/${match.page}/`;
     return `${prefix}/${encodeURIComponent(match.slug)}/`;
   })();
-  return space.base === '' ? path : `${space.base}${path}`;
+  const base = `${space.base}${langPrefix(space)}`;
+  return base === '' ? path : `${base}${path}`;
 }

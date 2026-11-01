@@ -2,7 +2,7 @@ import type { ObjectConfig, PropertyConfig } from 'sprintster';
 import { inLocale, type Resolved, type SiteContent } from './content.js';
 import type { Row } from './daemon.js';
 import type { ImageSeam, RenderedImage } from './images.js';
-import { urlFor, type UrlSpace } from './routes.js';
+import { urlFor, type RouteMatch, type UrlSpace } from './routes.js';
 
 export interface RecordView {
   id: string;
@@ -15,6 +15,15 @@ export interface RecordView {
 export interface SiteView {
   title: string | null;
   time: string;
+  lang: string | null;
+  locales: readonly string[];
+  // The home page in the current language.
+  home: string;
+}
+
+export interface AlternateView {
+  lang: string;
+  url: string;
 }
 
 export interface PaginatorView {
@@ -32,6 +41,8 @@ export interface TemplateData {
   records: RecordView[];
   paginator: PaginatorView | null;
   collection: string | null;
+  // The same page in every language, the current one included.
+  alternates: AlternateView[];
   // A singleton is its one record.
   data: Record<string, RecordView[] | RecordView | null>;
 }
@@ -67,7 +78,7 @@ export function createViews(ctx: ViewContext) {
   }
 
   function field(prop: PropertyConfig, raw: unknown, depth: number): unknown {
-    const value = isTranslated(prop) ? inLocale(raw, content.locales) : raw;
+    const value = isTranslated(prop) ? inLocale(raw, content.locales, ctx.space.lang ?? undefined) : raw;
     if (prop.type === 'markdown') return ctx.renderMarkdown(typeof value === 'string' ? value : '');
     if (prop.type !== 'ref' && prop.type !== 'refs') return value;
     const ids = idsOf(value);
@@ -137,11 +148,18 @@ export interface Rendering {
 
 function baseData(ctx: ViewContext, views: ReturnType<typeof createViews>): TemplateData {
   return {
-    site: { title: ctx.content.title, time: (ctx.now ?? new Date()).toISOString() },
+    site: {
+      title: ctx.content.title,
+      time: (ctx.now ?? new Date()).toISOString(),
+      lang: ctx.space.lang,
+      locales: ctx.space.locales,
+      home: urlFor({ kind: 'home' }, ctx.space),
+    },
     page: null,
     records: [],
     paginator: null,
     collection: null,
+    alternates: [],
     data: views.data(),
   };
 }
@@ -150,10 +168,19 @@ export function notFoundData(ctx: ViewContext): TemplateData {
   return baseData(ctx, createViews(ctx));
 }
 
+function matchOf(resolved: Resolved): RouteMatch {
+  const collection = resolved.collection.object;
+  if (resolved.kind === 'home') return { kind: 'home' };
+  if (resolved.kind === 'list') return { kind: 'list', collection, page: resolved.page };
+  return { kind: 'item', collection, slug: String(resolved.record['slug']) };
+}
+
 export function viewFor(resolved: Resolved, ctx: ViewContext): Rendering {
   const views = createViews(ctx);
   const object = resolved.collection.object;
-  const base = { ...baseData(ctx, views), collection: object };
+  const match = matchOf(resolved);
+  const alternates = ctx.space.locales.map((lang) => ({ lang, url: urlFor(match, { ...ctx.space, lang }) }));
+  const base = { ...baseData(ctx, views), collection: object, alternates };
 
   switch (resolved.kind) {
     case 'home':

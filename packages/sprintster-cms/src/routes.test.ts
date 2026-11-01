@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { buildCollections } from './collections.js';
 import { parseSiteConfig } from './config.js';
-import { matchRoute, urlFor, urlSpace, type RouteMatch } from './routes.js';
+import { languageOf, matchRoute, urlFor, urlSpace, type RouteMatch } from './routes.js';
 import { blogObjects, blogSite } from './test-objects.js';
 
 const site = parseSiteConfig(blogSite);
 const collections = buildCollections(site, blogObjects);
 const publicSpace = urlSpace(site, collections);
-const previewSpace = urlSpace(site, collections, true);
+const previewSpace = urlSpace(site, collections, { preview: true });
 
 // Every URL shape the blog served before collections existed, with what it shows.
 const blogUrls: ReadonlyArray<[string, RouteMatch]> = [
@@ -75,5 +75,35 @@ describe('urlFor', () => {
   it('keeps a previewed link inside the preview prefix', () => {
     expect(urlFor({ kind: 'item', collection: 'post', slug: 'x' }, previewSpace)).toBe('/preview/blog/x/');
     expect(urlFor({ kind: 'home' }, previewSpace)).toBe('/preview/');
+  });
+});
+
+describe('languages', () => {
+  const locales = ['en', 'hu'];
+  const en = urlSpace(site, collections, { locales });
+  const hu = urlSpace(site, collections, { locales, lang: 'hu' });
+
+  it('leaves the default language unprefixed and prefixes the others', () => {
+    const match: RouteMatch = { kind: 'item', collection: 'post', slug: 'x' };
+    expect(urlFor(match, en)).toBe('/blog/x/');
+    expect(urlFor(match, hu)).toBe('/hu/blog/x/');
+    expect(urlFor({ kind: 'home' }, hu)).toBe('/hu/');
+    expect(matchRoute('/hu/blog/x/', hu)).toEqual(match);
+    expect(matchRoute('/hu', hu)).toEqual({ kind: 'home' });
+    expect(matchRoute('/blog/x/', hu)).toBeNull();
+  });
+
+  it('puts the language after the preview prefix', () => {
+    const space = urlSpace(site, collections, { locales, lang: 'hu', preview: true });
+    expect(urlFor({ kind: 'list', collection: 'post', page: 2 }, space)).toBe('/preview/hu/blog/page/2/');
+    expect(matchRoute('/preview/hu/blog/page/2/', space)).toEqual({ kind: 'list', collection: 'post', page: 2 });
+  });
+
+  it('reads the language from the path', () => {
+    expect(languageOf('/hu/blog/x/', '', locales)).toBe('hu');
+    expect(languageOf('/blog/x/', '', locales)).toBe('en');
+    expect(languageOf('/preview/hu/', '/preview', locales)).toBe('hu');
+    expect(languageOf('/en/x/', '', locales)).toBe('en');
+    expect(languageOf('/x/', '', [])).toBeNull();
   });
 });

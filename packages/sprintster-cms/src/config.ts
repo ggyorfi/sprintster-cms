@@ -59,30 +59,25 @@ const SiteConfigFields = z.strictObject({
   configVersion: z.literal('1').default('1'),
   outDir: z.string().default('dist'),
   theme: z.string().default('default'),
-  langs: z.array(z.string().min(2)).min(1).default(['en']),
-  defaultLang: z.string().min(2).optional(),
   collections: z.record(z.string(), CollectionOverride).default({}),
   images: Images.prefault({}),
   pagination: Pagination.prefault({}),
   server: Server.prefault({}),
 });
 
-export const SiteConfigSchema = SiteConfigFields.transform((c) => ({
-  ...c,
-  defaultLang: c.defaultLang ?? c.langs[0],
-}))
-  .refine((c) => c.langs.includes(c.defaultLang), {
-    message: 'defaultLang must be one of langs',
-    path: ['defaultLang'],
-  })
-  .refine((c) => new Set(prefixesOf(c.server)).size === prefixesOf(c.server).length, {
-    message: 'server.admin, server.api, server.assets and server.preview must differ',
-    path: ['server'],
-  });
+export const SiteConfigSchema = SiteConfigFields.refine(
+  (c) => new Set(prefixesOf(c.server)).size === prefixesOf(c.server).length,
+  { message: 'server.admin, server.api, server.assets and server.preview must differ', path: ['server'] },
+);
 
 export type SiteConfig = z.infer<typeof SiteConfigSchema>;
 
 export function parseSiteConfig(raw: unknown): SiteConfig {
+  if (raw !== null && typeof raw === 'object' && ('langs' in raw || 'defaultLang' in raw)) {
+    throw new Error(
+      `${SCMS_CONFIG_FILE}: 'langs' and 'defaultLang' moved to the app config as "locales" (sprintster.config.json, app.locales), default first. See docs/ADR/0003-languages-in-urls.md`,
+    );
+  }
   if (raw !== null && typeof raw === 'object' && 'routes' in raw) {
     throw new Error(
       `${SCMS_CONFIG_FILE}: 'routes' was replaced by 'collections', e.g. "collections": { "post": { "path": "/blog" }, "page": { "path": "/", "home": "home" } }. See docs/ADR/0002-collections-and-routes.md`,
