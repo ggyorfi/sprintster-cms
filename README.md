@@ -38,3 +38,24 @@ pnpm exec scms reset    # wipe its store and blobs
 
 The CMS reads content only over the daemon's HTTP API, so the daemon must be running for
 `scms build`.
+
+## License
+
+sprintster-cms is licensed under **AGPL-3.0-only WITH a runtime and output
+exception**, the same terms as sprintster.
+
+- **scms itself** is copyleft (AGPLv3): if you modify its source and distribute
+  it, or offer a modified version over a network (including a hosted build or
+  deploy service), you must release those modifications.
+- **Your sites, content and themes**, and the **sites it builds**, are yours to
+  license however you like. See [`LICENSE-EXCEPTION`](LICENSE-EXCEPTION).
+
+Full texts: [`LICENSE`](LICENSE) (AGPLv3) and
+[`LICENSE-EXCEPTION`](LICENSE-EXCEPTION). SPDX:
+
+```
+AGPL-3.0-only WITH LicenseRef-sprintster-cms-runtime-exception
+```
+
+npm only accepts standard exceptions after `WITH`, so `package.json` declares
+`AGPL-3.0-only` and the package ships `LICENSE-EXCEPTION` alongside it.

@@ -1,0 +1,61 @@
+                  Sprintster CMS Runtime and Output Exception
+
+                              Version 1.0
+
+Additional permission under Section 7 of the GNU Affero General Public
+License, version 3 ("AGPLv3").
+
+sprintster-cms (the "Engine") is licensed under the AGPLv3. As a
+special exception, the copyright holders grant you the additional
+permissions set out below. These permissions are granted in addition to
+the rights you have under the AGPLv3; they do not remove or weaken any
+AGPLv3 obligation that applies to the Engine itself.
+
+DEFINITIONS
+
+  "Engine" means the source code of this project that is licensed under
+  the AGPLv3, together with any modified version of that source code.
+
+  "Application" means a work that uses the Engine solely through its
+  public interfaces: its declarative configuration format, its theme and
+  template interfaces, its documented public APIs, and its plugin and
+  extension interfaces. An Application
+  does not include any modification to the Engine's own source files.
+
+  "Generated Output" means any code, data, executable, installer,
+  container image, or deployment artifact produced by running the Engine
+  over an Application, including any portion of the Engine (the "Runtime
+  Components") that the Engine copies or embeds into that artifact so that
+  the Application can run.
+
+GRANT
+
+  1. Application independence. Supplying an Application to the Engine, or
+     distributing an Application together with the Engine, does not by
+     itself make the Application a work based on the Engine. You may
+     license and distribute your Application under terms of your choice.
+
+  2. Output and runtime freedom. You may create, use, distribute, host,
+     and sell Generated Output, including the Runtime Components embedded
+     within it, under terms of your choice. You are under no obligation to
+     release the source of your Application or of your Generated Output.
+
+CONDITIONS AND LIMITS
+
+  3. No effect on the Engine. This exception applies only to Applications
+     and Generated Output. It grants no permission to distribute, host, or
+     offer over a network the Engine itself, or any modified version of the
+     Engine, under terms other than the AGPLv3. If you modify the Engine's
+     own source files and convey the result or make it available to others
+     over a network (including as part of a hosted service that generates,
+     builds, or deploys Applications), the AGPLv3, including its Section 13,
+     continues to apply in full to those modifications.
+
+  4. Scope of the Runtime Components permission. The permission in
+     paragraph 2 extends to the Runtime Components only to the extent that
+     they are embedded in Generated Output as produced by the Engine. It
+     does not permit distributing the Runtime Components, or the Engine, as
+     a standalone work under terms other than the AGPLv3.
+
+If you do not wish to accept this exception, you may instead use the Engine
+solely under the terms of the AGPLv3.

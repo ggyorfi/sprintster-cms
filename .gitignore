@@ -3,3 +3,6 @@ node_modules/
 dist/
 examples/
 *.tsbuildinfo
+# copied in by prepack from the repo root
+packages/*/LICENSE
+packages/*/LICENSE-EXCEPTION

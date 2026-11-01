@@ -1,6 +1,7 @@
 {
   "name": "sprintster-cms",
   "version": "0.1.0",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "bin": {
     "scms": "./dist/scms.js"
@@ -13,14 +14,16 @@
   },
   "files": [
     "dist",
-    "theme"
+    "theme",
+    "LICENSE-EXCEPTION"
   ],
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "dev": "tsx src/scms.ts"
+    "dev": "tsx src/scms.ts",
+    "prepack": "node -e \"for (const f of ['LICENSE','LICENSE-EXCEPTION']) require('node:fs').copyFileSync('../../'+f, f)\""
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
