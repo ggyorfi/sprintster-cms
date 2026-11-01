@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: { scms: 'src/scms.ts', index: 'src/index.ts' },
+  entry: { scms: 'src/scms.ts', index: 'src/index.ts', publish: 'src/publish/plugin.ts' },
   format: 'esm',
   platform: 'node',
   target: 'node22',

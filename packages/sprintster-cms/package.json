@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./publish": {
+      "types": "./dist/publish.d.ts",
+      "default": "./dist/publish.js"
     }
   },
   "files": [
@@ -32,6 +36,7 @@
     "markdown-it": "^14.1.0",
     "sharp": "^0.34.5",
     "shiki": "^3.15.0",
+    "ws": "^8.21.1",
     "zod": "^4.1.13"
   },
   "peerDependencies": {
@@ -40,6 +45,7 @@
   "devDependencies": {
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^25.9.1",
+    "@types/ws": "^8.18.1",
     "sprintster": "latest",
     "tsup": "^8.5.0",
     "tsx": "^4.19.2",

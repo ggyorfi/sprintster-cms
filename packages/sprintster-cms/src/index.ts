@@ -1,6 +1,7 @@
 import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
+export * from './agent.js';
 export * from './build.js';
 export * from './collections.js';
 export * from './config.js';

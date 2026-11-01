@@ -102,7 +102,7 @@ locale. scms still has its own unused `langs` and `defaultLang`.
       *Done when:* a record with no Hungarian text renders its English text on
       the Hungarian page, and nothing renders `[object Object]`.
 
-## Next: `scms build`
+## Done: `scms build` (feed, sitemap and robots still open)
 
 Walk the route table, call the same renderer, write files. This is the test of
 the claim that the router subsumes the generator.
@@ -113,6 +113,23 @@ the claim that the router subsumes the generator.
       `404.html`, the demanded renditions, originals that cannot be resized,
       and the theme's static files.
 - [ ] **3. Feed, sitemap, robots.** Deferred out of the first serve pass.
+
+## Next: publishing
+
+Editors publish from the admin; a build agent anywhere with outbound internet
+does the build and deploy. Built on sprintster's plugin extension points
+(core ADR 13), so publishing stays a CMS concept.
+
+- [x] **1. The publish plugin.** `sprintster-cms/publish`: a Publish action, a
+      badge counting records changed since the last publish, a `publishJob`
+      history, and the claim and done routes an agent uses. The log position is
+      recorded when a job is claimed, before the build reads content.
+- [x] **2. The build agent.** `scms agent` keeps a WebSocket open to each
+      app (sprintster plugin channels, hibernating on Cloudflare), claims jobs
+      over HTTP on every push and every reconnect, runs `scms build` and the
+      site's deploy command, and reports back.
+- [ ] **3. Running it anywhere.** A Docker image, and launchd and systemd
+      examples.
 
 ## Later: `images.mode: 'url'` and a Cloudflare deploy module
 

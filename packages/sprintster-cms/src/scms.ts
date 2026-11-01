@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { reset, build, serve, dev } from './index.js';
+import { reset, build, serve, dev, runAgent, loadAgentConfig, AGENT_CONFIG_FILE } from './index.js';
 
 function usage(): void {
   console.log('scms <command>');
@@ -7,6 +7,7 @@ function usage(): void {
   console.log('  serve   run the site, admin and API against an already running daemon');
   console.log('  build   generate the static site into outDir (default dist), against a running daemon');
   console.log('  reset   wipe local data and blobs for the given environment (default: dev)');
+  console.log(`  agent   build and deploy sites when their admin asks to publish (config: ${AGENT_CONFIG_FILE})`);
 }
 
 async function main(): Promise<void> {
@@ -32,6 +33,12 @@ async function main(): Promise<void> {
       console.log(
         `scms build: ${report.pages} pages, ${report.renditions} renditions, ${report.originals} originals -> ${report.outDir} in ${((Date.now() - started) / 1000).toFixed(1)}s`,
       );
+      return;
+    }
+    case 'agent': {
+      const path = rest[0] !== undefined && !rest[0].startsWith('--') ? rest[0] : AGENT_CONFIG_FILE;
+      runAgent(loadAgentConfig(path));
+      await new Promise(() => {});
       return;
     }
     case undefined:
