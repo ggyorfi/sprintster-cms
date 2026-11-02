@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const examples = join(root, 'examples');
 const target = join(examples, 'reference-site');
-const sprintsterRepo = resolve(process.env['SPRINTSTER_REPO'] ?? join(root, '..', 'sprintster'));
+const sprintsterRepo = resolve(process.env['SPRINTSTER_REPO'] ?? join(root, '..', 'core'));
 
 function run(command: string, args: string[], cwd: string): void {
   console.log(`\n> ${command} ${args.join(' ')}  (${cwd})`);

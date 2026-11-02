@@ -15,6 +15,9 @@ export interface BuildOptions {
   root?: string;
   env?: string;
   outDir?: string;
+  // Build from this app instead of the local environment's daemon.
+  app?: string;
+  headers?: Record<string, string>;
 }
 
 export interface BuildReport {
@@ -62,7 +65,15 @@ export async function build(opts: BuildOptions = {}): Promise<BuildReport> {
   const root = opts.root ?? process.cwd();
   const site = loadSiteConfig(root);
   const outDir = resolvePath(root, opts.outDir ?? site.outDir);
-  const daemon = await connectDaemon({ root, ...(opts.env === undefined ? {} : { env: opts.env }) });
+  const headers = opts.headers ?? {};
+  const withHeaders: typeof fetch = (input, init) =>
+    fetch(input, { ...init, headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) } });
+  const daemon = await connectDaemon({
+    root,
+    fetch: withHeaders,
+    ...(opts.env === undefined ? {} : { env: opts.env }),
+    ...(opts.app === undefined ? {} : { baseUrl: opts.app.replace(/\/$/, '') }),
+  });
   const collections = buildCollections(site, daemon.objects, daemon.locales);
   const theme = loadTheme(site.theme, root);
   const media = createMedia(daemon, site, root);

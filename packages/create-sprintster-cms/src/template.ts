@@ -415,7 +415,7 @@ function readme(name: string): string {
     's8r dev       # daemon + terminal UI + opens the web GUI in your browser',
     's8r daemon    # daemon only (serves the API and the web GUI)',
     'scms serve    # site only, against an already running daemon',
-    'scms build    # generate the static site (coming soon)',
+    'scms build    # generate the static site into dist (daemon must be running)',
     'scms reset    # wipe local data and blobs for a clean start',
     '```',
     '',

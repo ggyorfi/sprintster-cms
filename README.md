@@ -25,7 +25,7 @@ regenerating it proves the scaffolder still works. `pnpm ref` also rebuilds the 
 sprintster checkout, because `link:` resolves built output and a stale bundle silently runs
 old core code.
 
-Set `SPRINTSTER_REPO` if your sprintster checkout is not a sibling of this one.
+Set `SPRINTSTER_REPO` if the sprintster checkout is not at `../core`.
 
 To work on the reference site:
 
@@ -38,6 +38,28 @@ pnpm exec scms reset    # wipe its store and blobs
 
 The CMS reads content only over the daemon's HTTP API, so the daemon must be running for
 `scms build`.
+
+## Commands
+
+```
+scms dev      # daemon and site on one origin
+scms serve    # site, admin and API against a running daemon
+scms build    # write the static site to outDir (default dist)
+scms agent    # build and deploy sites when their admin asks to publish (scms.agent.json)
+scms reset    # wipe local data and blobs
+```
+
+## Sites, languages and publishing
+
+- **Collections** ([ADR 2](docs/ADR/0002-collections-and-routes.md)): every object with a
+  `slug` gets a list page and record pages; `scms.config.json` `collections` only
+  overrides (`path`, `sort`, `perPage`, `home`, `list`, `publish`). Templates resolve
+  `<object>-<slug>.eta`, `<object>.eta`, `<object>-list.eta`, then `item.eta` / `list.eta`.
+- **Languages** ([ADR 3](docs/ADR/0003-languages-in-urls.md)): taken from the app's
+  `locales`; the default is unprefixed, the others live under `/<lang>/`.
+- **Publishing**: list `{ "name": "sprintster-cms/publish" }` in the app's `plugins`
+  for a Publish button and an unpublished-changes badge. `scms agent` keeps a WebSocket to
+  each app, and on a request runs `scms build` and the site's deploy command.
 
 ## License
 

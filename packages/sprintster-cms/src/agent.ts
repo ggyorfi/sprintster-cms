@@ -56,7 +56,7 @@ function runShell(command: string, cwd: string): Promise<void> {
 
 export const shellPublisher: Publisher = {
   async build(site) {
-    const report = await build({ root: site.dir });
+    const report = await build({ root: site.dir, app: site.app, headers: authHeaders(site) });
     return `${report.pages} pages, ${report.renditions} images`;
   },
   deploy: (site) => runShell(site.deploy, site.dir),
