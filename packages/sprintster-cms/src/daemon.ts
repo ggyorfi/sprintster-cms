@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { createApiClient, ObjectConfig } from 'sprintster';
+import { createApiClient, ObjectConfig, readConfigFile } from 'sprintster';
 import { z } from 'zod';
 
 export const PROJECT_CONFIG_FILE = 'sprintster.config.json';
@@ -56,7 +56,7 @@ export function resolveDaemonUrl(root: string = process.cwd(), env = 'dev'): str
   if (!existsSync(path)) {
     throw new Error(`no ${PROJECT_CONFIG_FILE} in ${root}; run scms from a sprintster project`);
   }
-  const raw: unknown = JSON.parse(readFileSync(path, 'utf8'));
+  const raw = readConfigFile(path);
   const environments = z.record(z.string(), z.unknown()).parse(
     (raw as { environments?: unknown }).environments ?? {},
   );

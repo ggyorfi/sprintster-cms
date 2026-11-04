@@ -1,8 +1,9 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { SCMS_CONFIG_FILE, loadSiteConfig, parseSiteConfig } from './config.js';
+import { resolveThemeDir } from './theme.js';
 
 function projectDir(config?: string): string {
   const dir = mkdtempSync(join(tmpdir(), 'scms-config-'));
@@ -70,5 +71,19 @@ describe('loadSiteConfig', () => {
 
   it('throws on malformed JSON rather than falling back to defaults', () => {
     expect(() => loadSiteConfig(projectDir('{ not json'))).toThrow();
+  });
+
+  it('follows extends, with a theme path relative to the file that declares it', () => {
+    const root = mkdtempSync(join(tmpdir(), 'scms-extends-'));
+    mkdirSync(join(root, 'shared/themes/portfolio'), { recursive: true });
+    mkdirSync(join(root, 'site'));
+    const shared = { theme: './themes/portfolio', outDir: 'out', collections: { work: { path: '/work' } } };
+    writeFileSync(join(root, 'shared', SCMS_CONFIG_FILE), JSON.stringify(shared));
+    const site = { extends: '../shared/scms.config.json', collections: { work: { sort: '-date' } } };
+    writeFileSync(join(root, 'site', SCMS_CONFIG_FILE), JSON.stringify(site));
+    const config = loadSiteConfig(join(root, 'site'));
+    expect(config.outDir).toBe('out');
+    expect(config.collections['work']).toMatchObject({ path: '/work', sort: '-date' });
+    expect(resolveThemeDir(config.theme, join(root, 'site'))).toBe(join(root, 'shared/themes/portfolio'));
   });
 });

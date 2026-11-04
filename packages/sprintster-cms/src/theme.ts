@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Eta } from 'eta';
 import { filters, type Filters } from './filters.js';
@@ -14,6 +14,10 @@ export interface Theme {
 const BUNDLED = fileURLToPath(new URL('../theme', import.meta.url));
 
 export function resolveThemeDir(name: string, root: string): string {
+  if (isAbsolute(name)) {
+    if (existsSync(name)) return name;
+    throw new Error(`no theme at ${name}`);
+  }
   const local = join(root, 'themes', name);
   if (existsSync(local)) return local;
   const bundled = join(BUNDLED, name);

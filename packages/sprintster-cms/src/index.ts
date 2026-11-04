@@ -1,5 +1,6 @@
-import { readFileSync, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { readConfigFile } from 'sprintster';
 
 export * from './agent.js';
 export * from './build.js';
@@ -26,7 +27,7 @@ export interface EnvPaths {
 
 export function loadEnvPaths(env: string, cwd: string = process.cwd()): EnvPaths {
   try {
-    const raw = JSON.parse(readFileSync(join(cwd, 'sprintster.config.json'), 'utf8'));
+    const raw = readConfigFile(join(cwd, 'sprintster.config.json')) as any;
     const e = raw?.environments?.[env];
     const db = e?.backend?.kind === 'sqlite' ? e.backend.path : undefined;
     return { db, blobs: e?.blobs?.dir };

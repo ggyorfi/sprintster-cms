@@ -1,5 +1,6 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { readConfigFile } from 'sprintster';
 import { z } from 'zod';
 
 export const SCMS_CONFIG_FILE = 'scms.config.json';
@@ -94,5 +95,5 @@ export function parseSiteConfig(raw: unknown): SiteConfig {
 export function loadSiteConfig(root: string = process.cwd()): SiteConfig {
   const path = join(root, SCMS_CONFIG_FILE);
   if (!existsSync(path)) return parseSiteConfig({});
-  return parseSiteConfig(JSON.parse(readFileSync(path, 'utf8')));
+  return parseSiteConfig(readConfigFile(path, ['theme']));
 }

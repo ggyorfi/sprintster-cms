@@ -55,6 +55,10 @@ scms reset    # wipe local data and blobs
   `slug` gets a list page and record pages; `scms.config.json` `collections` only
   overrides (`path`, `sort`, `perPage`, `home`, `list`, `publish`). Templates resolve
   `<object>-<slug>.eta`, `<object>.eta`, `<object>-list.eta`, then `item.eta` / `list.eta`.
+- **Shared configs**: `scms.config.json` takes `"extends": "<path>"` like the app config
+  (core ADR 15), and `theme` takes a path (`./themes/portfolio`) as well as a name,
+  resolved against the file that declares it. Sites sharing one theme and setup
+  each keep a one-line `scms.config.json`.
 - **Languages** ([ADR 3](docs/ADR/0003-languages-in-urls.md)): taken from the app's
   `locales`; the default is unprefixed, the others live under `/<lang>/`.
 - **Publishing**: list `{ "name": "sprintster-cms/publish" }` in the app's `plugins`
