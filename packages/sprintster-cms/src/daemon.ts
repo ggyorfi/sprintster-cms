@@ -121,3 +121,25 @@ export async function connectDaemon(opts: ConnectOptions = {}): Promise<Daemon> 
     },
   };
 }
+
+export function withoutPrivate(daemon: Daemon, names: readonly string[]): Daemon {
+  if (names.length === 0) return daemon;
+  for (const name of names) daemon.object(name);
+  if (daemon.assetsObject !== undefined && names.includes(daemon.assetsObject)) {
+    throw new Error(`scms private: '${daemon.assetsObject}' is the app's assets object and cannot be private`);
+  }
+  const hidden = new Set(names);
+  const objects = daemon.objects.filter((o) => !hidden.has(o.name));
+  return {
+    ...daemon,
+    objects,
+    object: (name) => {
+      if (hidden.has(name)) throw new Error(`'${name}' is private in scms.config.json, so the site cannot read it`);
+      return daemon.object(name);
+    },
+    rows: async (name) => {
+      if (hidden.has(name)) throw new Error(`'${name}' is private in scms.config.json, so the site cannot read it`);
+      return daemon.rows(name);
+    },
+  };
+}

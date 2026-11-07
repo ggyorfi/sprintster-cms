@@ -62,6 +62,8 @@ const SiteConfigFields = z.strictObject({
   outDir: z.string().default('dist'),
   theme: z.string().default('default'),
   collections: z.record(z.string(), CollectionOverride).default({}),
+  // Objects the site never reads, such as orders: not fetched, so no template can print them.
+  private: z.array(z.string().min(1)).default([]),
   images: Images.prefault({}),
   pagination: Pagination.prefault({}),
   server: Server.prefault({}),

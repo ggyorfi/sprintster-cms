@@ -4,7 +4,7 @@ import { dirname, join, resolve as resolvePath } from 'node:path';
 import { buildCollections, type Collection } from './collections.js';
 import { loadSiteConfig } from './config.js';
 import { loadContent, resolve, slugOf, type SiteContent } from './content.js';
-import { connectDaemon } from './daemon.js';
+import { connectDaemon, withoutPrivate } from './daemon.js';
 import { fileOf, type ImageSeam } from './images.js';
 import { createMedia } from './media.js';
 import { createRenderer } from './render.js';
@@ -68,12 +68,15 @@ export async function build(opts: BuildOptions = {}): Promise<BuildReport> {
   const headers = opts.headers ?? {};
   const withHeaders: typeof fetch = (input, init) =>
     fetch(input, { ...init, headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) } });
-  const daemon = await connectDaemon({
-    root,
-    fetch: withHeaders,
-    ...(opts.env === undefined ? {} : { env: opts.env }),
-    ...(opts.app === undefined ? {} : { baseUrl: opts.app.replace(/\/$/, '') }),
-  });
+  const daemon = withoutPrivate(
+    await connectDaemon({
+      root,
+      fetch: withHeaders,
+      ...(opts.env === undefined ? {} : { env: opts.env }),
+      ...(opts.app === undefined ? {} : { baseUrl: opts.app.replace(/\/$/, '') }),
+    }),
+    site.private,
+  );
   const collections = buildCollections(site, daemon.objects, daemon.locales);
   const theme = loadTheme(site.theme, root);
   const media = createMedia(daemon, site, root);

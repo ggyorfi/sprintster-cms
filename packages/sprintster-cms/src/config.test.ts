@@ -18,6 +18,7 @@ describe('parseSiteConfig', () => {
       outDir: 'dist',
       theme: 'default',
       collections: {},
+      private: [],
       images: { widths: [480, 768, 1200, 1920], formats: ['avif', 'webp'], quality: 75, cacheDir: '.scms/cache' },
       pagination: { perPage: 10 },
       server: { port: 4000, admin: '/admin', api: '/api', assets: '/assets', preview: '/preview' },

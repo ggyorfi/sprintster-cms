@@ -4,7 +4,7 @@ import { Hono, type Context } from 'hono';
 import { buildCollections, type Collection } from './collections.js';
 import { loadSiteConfig, type SiteConfig } from './config.js';
 import { loadContent, resolve } from './content.js';
-import { connectDaemon, type Daemon } from './daemon.js';
+import { connectDaemon, withoutPrivate, type Daemon } from './daemon.js';
 import { createMedia, type Media } from './media.js';
 import { createRenderer } from './render.js';
 import { languageOf, matchRoute, urlSpace } from './routes.js';
@@ -83,7 +83,7 @@ export function createSiteApp(site: SiteConfig, daemon: Daemon, theme: Theme, me
 export async function serve(opts: ServeOptions = {}): Promise<void> {
   const root = opts.root ?? process.cwd();
   const site = loadSiteConfig(root);
-  const daemon = await connectDaemon({ root, ...(opts.env === undefined ? {} : { env: opts.env }) });
+  const daemon = withoutPrivate(await connectDaemon({ root, ...(opts.env === undefined ? {} : { env: opts.env }) }), site.private);
   const port = opts.port ?? site.server.port;
   const theme = loadTheme(site.theme, root);
   const app = createSiteApp(site, daemon, theme, createMedia(daemon, site, root));

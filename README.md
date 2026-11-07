@@ -55,6 +55,10 @@ scms reset    # wipe local data and blobs
   `slug` gets a list page and record pages; `scms.config.json` `collections` only
   overrides (`path`, `sort`, `perPage`, `home`, `list`, `publish`). Templates resolve
   `<object>-<slug>.eta`, `<object>.eta`, `<object>-list.eta`, then `item.eta` / `list.eta`.
+- **Private objects**: `"private": ["order"]` in `scms.config.json` names objects the
+  site never reads, such as orders holding buyers' addresses. They are not fetched at
+  build or in `serve`, so no template can print them; naming the assets object or an
+  unknown object is an error.
 - **Shared configs**: `scms.config.json` takes `"extends": "<path>"` like the app config
   (core ADR 15), and `theme` takes a path (`./themes/portfolio`) as well as a name,
   resolved against the file that declares it. Sites sharing one theme and setup

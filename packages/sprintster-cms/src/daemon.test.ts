@@ -2,7 +2,8 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { PROJECT_CONFIG_FILE, connectDaemon, resolveDaemonUrl, type Fetch } from './daemon.js';
+import { PROJECT_CONFIG_FILE, connectDaemon, resolveDaemonUrl, withoutPrivate, type Daemon, type Fetch } from './daemon.js';
+import { blogObjects } from './test-objects.js';
 
 const settingsObject = {
   name: 'settings',
@@ -118,5 +119,31 @@ describe('connectDaemon', () => {
     const asset = await daemon.asset('abc');
     expect(asset.bytes).toEqual(bytes);
     expect(asset.contentType).toBe('image/png');
+  });
+});
+
+describe('withoutPrivate', () => {
+  const fetched: string[] = [];
+  const daemon: Daemon = {
+    baseUrl: 'http://x',
+    objects: blogObjects,
+    assetsObject: 'post',
+    locales: [],
+    object: (name) => blogObjects.find((o) => o.name === name) ?? (() => { throw new Error(`no object '${name}'`); })(),
+    rows: async (name) => (fetched.push(name), []),
+    asset: async () => ({ bytes: new Uint8Array(), contentType: 'x' }),
+  };
+
+  it('drops private objects and refuses to fetch them', async () => {
+    const site = withoutPrivate(daemon, ['tag']);
+    expect(site.objects.map((o) => o.name)).not.toContain('tag');
+    await expect(site.rows('tag')).rejects.toThrow(/private/);
+    expect(fetched).not.toContain('tag');
+    expect(() => site.object('tag')).toThrow(/private/);
+  });
+
+  it('rejects an unknown name and the assets object', () => {
+    expect(() => withoutPrivate(daemon, ['nope'])).toThrow(/nope/);
+    expect(() => withoutPrivate(daemon, ['post'])).toThrow(/assets object/);
   });
 });
