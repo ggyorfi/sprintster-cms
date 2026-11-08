@@ -53,7 +53,8 @@ scms reset    # wipe local data and blobs
 
 - **Collections** ([ADR 2](docs/ADR/0002-collections-and-routes.md)): every object with a
   `slug` gets a list page and record pages; `scms.config.json` `collections` only
-  overrides (`path`, `sort`, `perPage`, `home`, `list`, `publish`). Templates resolve
+  overrides (`path`, `sort`, `perPage`, `home`, `list`, `publish`); `sort` also takes the
+  `createdAt` and `updatedAt` every record carries. Templates resolve
   `<object>-<slug>.eta`, `<object>.eta`, `<object>-list.eta`, then `item.eta` / `list.eta`.
 - **Private objects**: `"private": ["order"]` in `scms.config.json` names objects the
   site never reads, such as orders holding buyers' addresses. They are not fetched at

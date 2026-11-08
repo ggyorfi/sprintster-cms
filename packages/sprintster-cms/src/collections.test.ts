@@ -65,6 +65,10 @@ describe('buildCollections', () => {
     expect(() => build({ collections: { post: { sort: '-date' } } })).toThrow(/sorts by '-date'/);
   });
 
+  it('sorts by the timestamps every record carries', () => {
+    expect(build({ collections: { post: { sort: '-createdAt' } } }).find((c) => c.object === 'post')?.sort).toEqual({ property: 'createdAt', descending: true });
+  });
+
   it('points at the replacement when a config still has routes', () => {
     expect(() => parseSiteConfig({ routes: { posts: 'blog' } })).toThrow(/replaced by 'collections'/);
   });

@@ -1,4 +1,4 @@
-import type { ObjectConfig } from 'sprintster';
+import { TIMESTAMP_FIELDS, type ObjectConfig } from 'sprintster';
 import { prefixesOf, type SiteConfig } from './config.js';
 
 export interface Collection {
@@ -37,7 +37,8 @@ export function buildCollections(site: SiteConfig, objects: readonly ObjectConfi
   for (const obj of objects) {
     const override = site.collections[obj.name];
     if (override === false || !hasSlug(obj)) continue;
-    const props = new Set(obj.properties.map((p) => p.name));
+    // Every record also carries its log timestamps (core ADR 17), so a collection may sort by them.
+    const props = new Set([...obj.properties.map((p) => p.name), ...TIMESTAMP_FIELDS]);
     const sort = override?.sort;
     const publish = override?.publish;
     const statusValue = publish === false ? undefined : (publish?.status ?? 'published');

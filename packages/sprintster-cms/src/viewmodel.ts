@@ -106,7 +106,7 @@ export function createViews(ctx: ViewContext) {
     const key = `${objectName}:${row.id}:${depth}`;
     const cached = memo.get(key);
     if (cached !== undefined) return cached;
-    const out: RecordView = { id: row.id, object: objectName, url: null, $raw: {} };
+    const out: RecordView = { id: row.id, object: objectName, url: null, $raw: {}, createdAt: row['createdAt'] ?? null, updatedAt: row['updatedAt'] ?? null };
     for (const prop of objects.get(objectName)?.properties ?? []) {
       if (prop.name === 'id') continue;
       if (prop.type === 'markdown') {
