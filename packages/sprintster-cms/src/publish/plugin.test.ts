@@ -24,20 +24,35 @@ const page = {
   ],
 };
 
-async function setup() {
-  const config = loadConfig({ version: '1', objects: [page, ...contributedObjects] });
+const settings = {
+  name: 'settings',
+  title: 'Settings',
+  titlePlural: 'Settings',
+  route: 'settings',
+  singleton: true,
+  properties: [
+    { name: 'id', type: 'id', strategy: 'uuid', system: true },
+    { name: 'maintenance', type: 'boolean' },
+  ],
+  lists: [],
+  views: [{ name: 'default', title: 'Settings', fields: [{ property: 'maintenance' }] }],
+};
+
+async function setup(pluginConfig: Record<string, unknown> = {}) {
+  const config = loadConfig({ version: '1', objects: [page, settings, ...contributedObjects] });
   setAppConfig(config);
   const store = new InMemoryEventStore();
   const apis = Object.fromEntries(config.objects.map((o) => [o.name, createObjectApi<{ id: string }>(store, o)])) as Record<string, PluginObjectApi<{ id: string }>>;
   const routes: PluginRoute[] = [];
   const pushed: unknown[] = [];
+  const gui: Array<{ id: string; placement?: string }> = [];
   const ctx = {
-    config: {},
+    config: pluginConfig,
     logger: { info() {}, warn() {}, error() {} },
     objects: { register() {} },
     routes: { register: (r: PluginRoute) => routes.push(r) },
     channels: { open: () => ({ send: (m: unknown) => pushed.push(m) }) },
-    gui: { action() {}, badge() {} },
+    gui: { action: (a: { id: string }) => gui.push(a), badge: (b: { id: string }) => gui.push(b) },
     data: { object: (name: string) => apis[name]!, position: () => store.position(), changesSince: (p: number) => changesSince(store, p) },
   } as unknown as DaemonPluginContext;
   await plugin.init(ctx);
@@ -48,10 +63,26 @@ async function setup() {
     return { status: res.status, body: res.status === 204 ? null : ((await res.json()) as Record<string, any>) };
   };
   const addPage = (title: string) => apis['page']!.add!({ id: crypto.randomUUID(), title });
-  return { call, addPage, pushed };
+  return { call, addPage, pushed, gui };
 }
 
 describe('publish plugin', () => {
+  it('switches maintenance mode from the Maintenance page and publishes each change', async () => {
+    const { call, gui, pushed } = await setup({ maintenance: 'settings.maintenance' });
+    expect(gui.filter((g) => g.id === 'maintenance').map((g) => g.placement)).toEqual(['maintenance', 'maintenance']);
+    expect((await call('GET', '/maintenance')).body).toEqual({ text: 'Site online', tone: 'success' });
+    expect((await call('POST', '/maintenance')).body!['message']).toBe('The site goes offline with this publish.');
+    expect((await call('GET', '/maintenance')).body).toEqual({ text: 'Site offline (maintenance)', tone: 'warning' });
+    expect((await call('POST', '/maintenance')).body!['message']).toBe('The site comes back online with the publish already queued.');
+    expect((await call('GET', '/maintenance')).body!['text']).toBe('Site online');
+    expect(pushed).toHaveLength(1);
+  });
+
+  it('offers no switch unless configured', async () => {
+    const { gui } = await setup();
+    expect(gui.map((g) => g.id)).not.toContain('maintenance');
+  });
+
   it('runs a request through claim and done, and counts changes since the published position', async () => {
     const { call, addPage, pushed } = await setup();
     await addPage('Home');

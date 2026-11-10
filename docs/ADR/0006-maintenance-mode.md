@@ -24,9 +24,15 @@ on a singleton, `"maintenance": "settings.maintenance"`. While it is true,
 theme's static files. Every URL then shows that page, on any host that serves a
 `404.html` for missing paths.
 
-Turning it on or off is an ordinary edit followed by Publish, so the agent,
-the badge and the deploy need nothing new. The rendition cache lives outside
-the output (`.scms/cache`), so switching back on is a normal, fast build.
+The switch sits on the admin's Maintenance page: the publish plugin, given
+the same pointer in its config (`"maintenance": "settings.maintenance"`),
+shows a "Site online / offline" badge and a button there (core's GUI
+placement, `placement: 'maintenance'`). Pressing it flips the boolean and
+queues a Publish, since nothing changes on the site until a build. The
+message stays in the singleton, edited with the rest of the settings.
+
+The rendition cache lives outside the output (`.scms/cache`), so switching back
+on is a normal, fast build.
 
 Every build checks the setup, switched on or not: the theme's
 `maintenance.eta` must exist, and the named property must be a boolean on a

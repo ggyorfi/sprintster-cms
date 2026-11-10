@@ -85,28 +85,68 @@ export async function status(data: PluginData): Promise<{ text: string; tone: 'i
 
 const Done = z.object({ ok: z.boolean(), message: z.string().optional() });
 
+// `maintenance`: the same `<singleton>.<boolean>` as scms.config.json's; with it, the Maintenance page gets the switch.
+const Config = z.object({ maintenance: z.string().regex(/^\w+\.\w+$/, 'must be <singleton>.<boolean property>').optional() }).strict();
+
 export const plugin: DaemonPlugin = {
   name: 'sprintster-cms/publish',
   namespace: 'publish',
   version: '1',
   capabilities: [],
-  config: z.object({}).strict(),
+  config: Config,
   init(ctx) {
     const api = () => ctx.data.object(JOB_OBJECT);
     // Agents listen here and claim over HTTP when told; a push carries no job, so a missed one costs nothing.
     const agents = ctx.channels.open('jobs');
 
+    async function requestPublish(): Promise<{ queued: boolean; job: PublishJob }> {
+      const active = (await jobs(ctx.data)).find((j) => j.status === 'requested' || j.status === 'building');
+      if (active !== undefined) return { queued: false, job: active };
+      const job = (await api().add!({ id: crypto.randomUUID(), status: 'requested', requestedAt: now() })) as unknown as PublishJob;
+      agents.send({ type: 'job' });
+      return { queued: true, job };
+    }
+
     ctx.routes.register({
       method: 'POST',
       path: '/requests',
       handler: async () => {
-        const active = (await jobs(ctx.data)).find((j) => j.status === 'requested' || j.status === 'building');
-        if (active !== undefined) return Response.json({ message: 'A publish is already queued.', job: active });
-        const job = await api().add!({ id: crypto.randomUUID(), status: 'requested', requestedAt: now() });
-        agents.send({ type: 'job' });
-        return Response.json({ message: 'Publish queued.', job }, { status: 201 });
+        const { queued, job } = await requestPublish();
+        return queued ? Response.json({ message: 'Publish queued.', job }, { status: 201 }) : Response.json({ message: 'A publish is already queued.', job });
       },
     });
+
+    const { maintenance } = Config.parse(ctx.config ?? {});
+    if (maintenance !== undefined) {
+      const [object = '', property = ''] = maintenance.split('.');
+      const isOn = async () => (await ctx.data.object(object).get(object))?.[property as never] === true;
+      ctx.routes.register({
+        method: 'GET',
+        path: '/maintenance',
+        handler: async () =>
+          Response.json((await isOn()) ? { text: 'Site offline (maintenance)', tone: 'warning' } : { text: 'Site online', tone: 'success' }),
+      });
+      // The switch only shows on the site after a build, so flipping it also publishes.
+      ctx.routes.register({
+        method: 'POST',
+        path: '/maintenance',
+        handler: async () => {
+          const on = !(await isOn());
+          await ctx.data.object(object).update!(object, { [property]: on });
+          const { queued } = await requestPublish();
+          const what = on ? 'The site goes offline' : 'The site comes back online';
+          return Response.json({ message: `${what} with ${queued ? 'this publish' : 'the publish already queued'}.` });
+        },
+      });
+      ctx.gui.badge({ id: 'maintenance', route: '/maintenance', placement: 'maintenance' });
+      ctx.gui.action({
+        id: 'maintenance',
+        label: 'Switch maintenance mode',
+        route: '/maintenance',
+        confirm: 'Switch maintenance mode and publish the site now?',
+        placement: 'maintenance',
+      });
+    }
 
     ctx.routes.register({ method: 'GET', path: '/status', handler: async () => Response.json(await status(ctx.data)) });
 
