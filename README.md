@@ -64,6 +64,10 @@ scms reset    # wipe local data and blobs
   (core ADR 15), and `theme` takes a path (`./themes/portfolio`) as well as a name,
   resolved against the file that declares it. Sites sharing one theme and setup
   each keep a one-line `scms.config.json`.
+- **Theme layers** ([ADR 4](docs/ADR/0004-theme-layers.md)): a theme folder with
+  `theme.json` `{ "extends": "../../shared/shop/themes/shop" }` takes every template,
+  include and `static/` file it lacks from its parent, so a site keeps only its
+  overrides (brand stylesheet, fonts, images, a partial).
 - **Languages** ([ADR 3](docs/ADR/0003-languages-in-urls.md)): taken from the app's
   `locales`; the default is unprefixed, the others live under `/<lang>/`.
 - **Publishing**: list `{ "name": "sprintster-cms/publish" }` in the app's `plugins`

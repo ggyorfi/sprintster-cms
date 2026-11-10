@@ -38,7 +38,7 @@ export function createRenderer(
     page(resolved) {
       const { templates, data } = viewFor(resolved, ctx);
       const template = templates.find((t) => theme.has(t));
-      if (template === undefined) throw new Error(`theme '${theme.dir}' has none of ${templates.map((t) => `${t}.eta`).join(', ')}`);
+      if (template === undefined) throw new Error(`theme '${theme.dirs[0]}' has none of ${templates.map((t) => `${t}.eta`).join(', ')}`);
       return theme.render(template, data, { markdownify });
     },
     notFound() {

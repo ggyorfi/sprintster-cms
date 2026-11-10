@@ -45,6 +45,14 @@ export function enumerateRoutes(content: SiteContent, collections: readonly Coll
   return matches;
 }
 
+// Parent first, so a child's file replaces the parent's (ADR 4).
+export async function copyThemeStatic(dirs: readonly string[], outDir: string): Promise<void> {
+  for (const dir of [...dirs].reverse()) {
+    const staticDir = join(dir, 'static');
+    if (existsSync(staticDir)) await cp(staticDir, join(outDir, '_theme'), { recursive: true });
+  }
+}
+
 // A trailing slash URL is a directory with an index.html, so any static host serves it without rewrites.
 export function fileFor(url: string): string {
   const path = url.split('/').map((s) => decodeURIComponent(s)).join('/');
@@ -123,7 +131,6 @@ export async function build(opts: BuildOptions = {}): Promise<BuildReport> {
     await write(outDir, `${originalPrefix}${id}`, (await daemon.asset(hash)).bytes);
   });
 
-  const staticDir = join(theme.dir, 'static');
-  if (existsSync(staticDir)) await cp(staticDir, join(outDir, '_theme'), { recursive: true });
+  await copyThemeStatic(theme.dirs, outDir);
   return { outDir, pages, renditions: names.length, originals: originals.size };
 }

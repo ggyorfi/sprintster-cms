@@ -58,7 +58,7 @@ export function createSiteApp(site: SiteConfig, daemon: Daemon, theme: Theme, me
     });
   });
 
-  app.use('/_theme/*', serveStatic({ root: theme.dir, rewriteRequestPath: (p) => p.replace(/^\/_theme/, '/static') }));
+  for (const dir of theme.dirs) app.use('/_theme/*', serveStatic({ root: dir, rewriteRequestPath: (p) => p.replace(/^\/_theme/, '/static') }));
 
   app.get('*', async (c) => {
     const pathname = new URL(c.req.url).pathname;
