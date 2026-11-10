@@ -109,6 +109,11 @@ export type Resolved =
   | { kind: 'list'; collection: Collection; records: Row[]; page: number; pageCount: number; total: number }
   | { kind: 'item'; collection: Collection; record: Row };
 
+// The home record lives at '/' only, so a site never serves the same page at two URLs.
+export function isHomeRecord(collection: Collection, row: Row): boolean {
+  return collection.path === '/' && collection.home !== null && slugOf(row) === collection.home;
+}
+
 export function resolve(match: RouteMatch, content: SiteContent): Resolved | null {
   if (match.kind === 'home') {
     const root = content.collections.find((c) => c.path === '/' && c.home !== null);
@@ -121,7 +126,7 @@ export function resolve(match: RouteMatch, content: SiteContent): Resolved | nul
   if (match.kind === 'item') {
     const wanted = match.slug.toLowerCase();
     const record = all.find((r) => slugOf(r) === wanted);
-    return record === undefined ? null : { kind: 'item', collection, record };
+    return record === undefined || isHomeRecord(collection, record) ? null : { kind: 'item', collection, record };
   }
   // The '/' collection has no list page: '/' is its home record.
   if (collection.path === '/' || !collection.list) return null;

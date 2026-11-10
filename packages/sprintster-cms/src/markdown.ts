@@ -1,9 +1,11 @@
 import MarkdownIt from 'markdown-it';
 import { escape } from './filters.js';
+import type { FileLinks } from './files.js';
 import { parseAssetUrl, type ImageSeam, type RenderedImage } from './images.js';
 
 export interface MarkdownOptions {
   images: ImageSeam;
+  files?: FileLinks;
   assetsPrefix: string;
 }
 
@@ -45,6 +47,20 @@ export function createMarkdown(opts: MarkdownOptions): MarkdownIt {
     tokens[idx]?.hidden === true || isLoneImage(tokens, idx) ? '' : '<p>';
   md.renderer.rules['paragraph_close'] = (tokens, idx) =>
     tokens[idx]?.hidden === true || isLoneImage(tokens, idx - 2) ? '' : '</p>';
+
+  const renderLinkOpen = md.renderer.rules['link_open'] ?? ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
+  md.renderer.rules['link_open'] = (tokens, idx, options, env, self) => {
+    const token = tokens[idx];
+    const href = token?.attrGet('href') ?? '';
+    const parsed = parseAssetUrl(href, opts.assetsPrefix);
+    if (token !== undefined && parsed !== null && opts.files !== undefined) {
+      if ('error' in parsed) throw new Error(parsed.error.replace('references', 'links to'));
+      const url = opts.files(parsed.assetId);
+      if (url === null) throw new Error(`body links to an asset that does not exist: ${href}`);
+      token.attrSet('href', url);
+    }
+    return renderLinkOpen(tokens, idx, options, env, self);
+  };
 
   md.renderer.rules['image'] = (tokens, idx) => {
     const token = tokens[idx];

@@ -1,5 +1,5 @@
 import type { ObjectConfig, PropertyConfig } from 'sprintster';
-import { inLocale, slugOf, type Resolved, type SiteContent } from './content.js';
+import { inLocale, isHomeRecord, slugOf, type Resolved, type SiteContent } from './content.js';
 import type { Row } from './daemon.js';
 import type { ImageSeam, RenderedImage } from './images.js';
 import { urlFor, type RouteMatch, type UrlSpace } from './routes.js';
@@ -127,8 +127,9 @@ export function createViews(ctx: ViewContext) {
         },
       });
     }
-    if (collectionOf.has(objectName) && typeof row['slug'] === 'string') {
-      out.url = urlFor({ kind: 'item', collection: objectName, slug: row['slug'] }, ctx.space);
+    const collection = collectionOf.get(objectName);
+    if (collection !== undefined && typeof row['slug'] === 'string') {
+      out.url = urlFor(isHomeRecord(collection, row) ? { kind: 'home' } : { kind: 'item', collection: objectName, slug: row['slug'] }, ctx.space);
     }
     memo.set(key, out);
     return out;

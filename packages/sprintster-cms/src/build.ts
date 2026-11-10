@@ -3,9 +3,11 @@ import { existsSync } from 'node:fs';
 import { dirname, join, resolve as resolvePath } from 'node:path';
 import { buildCollections, type Collection } from './collections.js';
 import { loadSiteConfig } from './config.js';
-import { loadContent, resolve, slugOf, type SiteContent } from './content.js';
+import { isHomeRecord, loadContent, resolve, slugOf, type SiteContent } from './content.js';
 import { connectDaemon, withoutPrivate } from './daemon.js';
 import { fileOf, type ImageSeam } from './images.js';
+import { createFileLinks, fileLinkPath } from './files.js';
+import { inMaintenance, maintenanceSwitch } from './maintenance.js';
 import { createMedia } from './media.js';
 import { createRenderer } from './render.js';
 import { urlFor, urlSpace, type RouteMatch, type UrlSpace } from './routes.js';
@@ -25,6 +27,8 @@ export interface BuildReport {
   pages: number;
   renditions: number;
   originals: number;
+  files: number;
+  maintenance: boolean;
 }
 
 const CONCURRENCY = 4;
@@ -40,7 +44,7 @@ export function enumerateRoutes(content: SiteContent, collections: readonly Coll
       const pages = Math.max(1, Math.ceil(rows.length / c.perPage));
       for (let page = 1; page <= pages; page++) matches.push({ kind: 'list', collection: c.object, page });
     }
-    for (const r of rows) if (slugOf(r) !== '') matches.push({ kind: 'item', collection: c.object, slug: String(r['slug']) });
+    for (const r of rows) if (slugOf(r) !== '' && !isHomeRecord(c, r)) matches.push({ kind: 'item', collection: c.object, slug: String(r['slug']) });
   }
   return matches;
 }
@@ -89,6 +93,15 @@ export async function build(opts: BuildOptions = {}): Promise<BuildReport> {
   const theme = loadTheme(site.theme, root);
   const media = createMedia(daemon, site, root);
   const content = await loadContent(daemon, collections);
+  const maintenanceOn = inMaintenance(maintenanceSwitch(site, daemon.objects, theme), content);
+  if (maintenanceOn) {
+    await rm(outDir, { recursive: true, force: true });
+    const page = createRenderer(theme, site, content, urlSpace(site, collections, { locales: daemon.locales, ...(daemon.locales[0] === undefined ? {} : { lang: daemon.locales[0] }) })).maintenance();
+    await write(outDir, 'index.html', page);
+    await write(outDir, '404.html', page);
+    await copyThemeStatic(theme.dirs, outDir);
+    return { outDir, pages: 1, renditions: 0, originals: 0, files: 0, maintenance: true };
+  }
   const seam = await media.seam(content);
 
   // Images a rendition cannot be made from fall back to the original under the API prefix, so the original is copied there.
@@ -100,6 +113,9 @@ export async function build(opts: BuildOptions = {}): Promise<BuildReport> {
     return image;
   };
 
+  const linked = new Set<string>();
+  const files = createFileLinks(content, site, (id) => linked.add(id));
+
   await rm(outDir, { recursive: true, force: true });
   const languages = daemon.locales.length === 0 ? [undefined] : daemon.locales;
   const matches = enumerateRoutes(content, collections);
@@ -108,7 +124,7 @@ export async function build(opts: BuildOptions = {}): Promise<BuildReport> {
   for (const lang of languages) {
     const space = urlSpace(site, collections, { locales: daemon.locales, ...(lang === undefined ? {} : { lang }) });
     defaultSpace ??= space;
-    const renderer = createRenderer(theme, site, content, space, { images });
+    const renderer = createRenderer(theme, site, content, space, { images, files });
     for (const match of matches) {
       const resolved = resolve(match, content);
       if (resolved === null) continue;
@@ -116,7 +132,7 @@ export async function build(opts: BuildOptions = {}): Promise<BuildReport> {
       pages++;
     }
   }
-  await write(outDir, '404.html', createRenderer(theme, site, content, defaultSpace!, { images }).notFound());
+  await write(outDir, '404.html', createRenderer(theme, site, content, defaultSpace!, { images, files }).notFound());
 
   const names = media.demanded();
   await inBatches(names, async (name) => {
@@ -131,6 +147,11 @@ export async function build(opts: BuildOptions = {}): Promise<BuildReport> {
     await write(outDir, `${originalPrefix}${id}`, (await daemon.asset(hash)).bytes);
   });
 
+  await inBatches([...linked], async (id) => {
+    const file = fileOf(content.assetsById.get(id)!)!;
+    await write(outDir, fileLinkPath(site, id, String(file['filename'])), (await daemon.asset(String(file['hash']))).bytes);
+  });
+
   await copyThemeStatic(theme.dirs, outDir);
-  return { outDir, pages, renditions: names.length, originals: originals.size };
+  return { outDir, pages, renditions: names.length, originals: originals.size, files: linked.size, maintenance: false };
 }

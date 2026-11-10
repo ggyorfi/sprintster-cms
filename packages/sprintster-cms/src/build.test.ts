@@ -12,11 +12,10 @@ const rows = (slugs: string[]): Row[] => slugs.map((slug) => ({ id: slug, slug }
 const content = (byObject: Record<string, Row[]>) => ({ rows: new Map(Object.entries(byObject)) }) as unknown as SiteContent;
 
 describe('enumerateRoutes', () => {
-  it('lists the home, every list page and every record', () => {
+  it('lists the home, every list page and every record, the home record only at /', () => {
     const routes = enumerateRoutes(content({ page: rows(['home', 'about']), post: rows(['a', 'b', 'c']), category: [], tag: [] }), collections);
     expect(routes).toEqual([
       { kind: 'home' },
-      { kind: 'item', collection: 'page', slug: 'home' },
       { kind: 'item', collection: 'page', slug: 'about' },
       { kind: 'list', collection: 'post', page: 1 },
       { kind: 'list', collection: 'post', page: 2 },

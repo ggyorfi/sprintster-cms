@@ -64,6 +64,8 @@ const SiteConfigFields = z.strictObject({
   collections: z.record(z.string(), CollectionOverride).default({}),
   // Objects the site never reads, such as orders: not fetched, so no template can print them.
   private: z.array(z.string().min(1)).default([]),
+  // `<singleton>.<boolean>`: while true, the build is only the theme's maintenance page.
+  maintenance: z.string().regex(/^\w+\.\w+$/, 'must be <singleton>.<boolean property>').optional(),
   images: Images.prefault({}),
   pagination: Pagination.prefault({}),
   server: Server.prefault({}),

@@ -5,6 +5,9 @@ import { buildCollections, type Collection } from './collections.js';
 import { loadSiteConfig, type SiteConfig } from './config.js';
 import { loadContent, resolve } from './content.js';
 import { connectDaemon, withoutPrivate, type Daemon } from './daemon.js';
+import { createFileLinks, safeFileName } from './files.js';
+import { fileOf } from './images.js';
+import { inMaintenance, maintenanceSwitch } from './maintenance.js';
 import { createMedia, type Media } from './media.js';
 import { createRenderer } from './render.js';
 import { languageOf, matchRoute, urlSpace } from './routes.js';
@@ -36,6 +39,7 @@ export function createSiteApp(site: SiteConfig, daemon: Daemon, theme: Theme, me
   const app = new Hono();
   const collections: Collection[] = buildCollections(site, daemon.objects, daemon.locales);
   const { api, admin, assets, preview } = site.server;
+  const maintenance = maintenanceSwitch(site, daemon.objects, theme);
 
   app.all(`${api}/*`, (c) => {
     const url = new URL(c.req.url);
@@ -58,6 +62,15 @@ export function createSiteApp(site: SiteConfig, daemon: Daemon, theme: Theme, me
     });
   });
 
+  app.get(`${assets}/:id/:name`, async (c) => {
+    const content = await loadContent(daemon, collections, { preview: true });
+    const id = c.req.param('id');
+    const file = createFileLinks(content, site)(id) === null ? null : fileOf(content.assetsById.get(id)!);
+    if (file === null || c.req.param('name') !== safeFileName(String(file['filename']))) return c.notFound();
+    const blob = await daemon.asset(String(file['hash']));
+    return c.body(new Uint8Array(blob.bytes), 200, { 'content-type': blob.contentType });
+  });
+
   for (const dir of theme.dirs) app.use('/_theme/*', serveStatic({ root: dir, rewriteRequestPath: (p) => p.replace(/^\/_theme/, '/static') }));
 
   app.get('*', async (c) => {
@@ -72,6 +85,10 @@ export function createSiteApp(site: SiteConfig, daemon: Daemon, theme: Theme, me
     const match = matchRoute(pathname, space);
     const content = await loadContent(daemon, collections, { preview: isPreview });
     const renderer = createRenderer(theme, site, content, space, { images: await media.seam(content) });
+    // The published site in maintenance is index.html plus the same page as 404.html; /preview keeps the real site.
+    if (!isPreview && inMaintenance(maintenance, content)) {
+      return c.html(renderer.maintenance(), pathname === '/' ? 200 : 404);
+    }
     const resolved = match === null ? null : resolve(match, content);
     if (resolved === null) return c.html(renderer.notFound(), 404);
     return c.html(renderer.page(resolved));

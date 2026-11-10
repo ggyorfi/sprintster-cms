@@ -30,8 +30,12 @@ async function main(): Promise<void> {
     case 'build': {
       const started = Date.now();
       const report = await build({ env });
+      if (report.maintenance) {
+        console.log(`scms build: maintenance mode, only the maintenance page -> ${report.outDir}`);
+        return;
+      }
       console.log(
-        `scms build: ${report.pages} pages, ${report.renditions} renditions, ${report.originals} originals -> ${report.outDir} in ${((Date.now() - started) / 1000).toFixed(1)}s`,
+        `scms build: ${report.pages} pages, ${report.renditions} renditions, ${report.originals} originals, ${report.files} files -> ${report.outDir} in ${((Date.now() - started) / 1000).toFixed(1)}s`,
       );
       return;
     }

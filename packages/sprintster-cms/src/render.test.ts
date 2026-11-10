@@ -84,8 +84,12 @@ describe('rendering', () => {
     return resolved === null ? null : renderer.page(resolved);
   }
 
-  it('renders the home record at /', async () => {
+  it('renders the home record at / only, and links to it there', async () => {
     expect(await render('/')).toContain('Welcome');
+    expect(await render('/home/')).toBeNull();
+    const { content, space } = await blog();
+    const views = createViews({ content, space, images: () => null, renderMarkdown: (s) => s });
+    expect(views.full('page', content.rows.get('page')![0]!).url).toBe('/');
   });
 
   it('renders a post with its category link', async () => {

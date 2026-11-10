@@ -129,3 +129,23 @@ describe('lists', () => {
     expect(md.render('- one\n- two')).toBe('<ul>\n<li>one</li>\n<li>two</li>\n</ul>\n');
   });
 });
+
+describe('file links', () => {
+  const linked = createMarkdown({
+    images: seam,
+    files: (id) => (id === 'doc' ? '/assets/doc/Report.pdf' : null),
+    assetsPrefix: '/assets',
+  });
+
+  it('points a link to an asset record at its file', () => {
+    expect(linked.render('[The report](/assets/doc)')).toContain('<a href="/assets/doc/Report.pdf">The report</a>');
+  });
+
+  it('refuses a link to an asset that does not exist', () => {
+    expect(() => linked.render('[Gone](/assets/missing)')).toThrow(/links to an asset that does not exist/);
+  });
+
+  it('leaves other links alone', () => {
+    expect(linked.render('[Home](/about) [Out](https://example.com/assets/doc)')).toContain('href="/about"');
+  });
+});
