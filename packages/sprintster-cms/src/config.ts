@@ -64,6 +64,8 @@ const SiteConfigFields = z.strictObject({
   collections: z.record(z.string(), CollectionOverride).default({}),
   // Objects the site never reads, such as orders: not fetched, so no template can print them.
   private: z.array(z.string().min(1)).default([]),
+  // ADR 8: 'blob-store' lists linked files in _files.json for the host to serve from the app's blob store, instead of copying them.
+  linkedFiles: z.enum(['copy', 'blob-store']).default('copy'),
   // `<singleton>.<boolean>`: while true, the build is only the theme's maintenance page.
   maintenance: z.string().regex(/^\w+\.\w+$/, 'must be <singleton>.<boolean property>').optional(),
   images: Images.prefault({}),

@@ -2,7 +2,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { runAgent, type AgentHandle, type Publisher } from './agent.js';
+import { runAgent, type AgentHandle, type Publisher, type Scheduler } from './agent.js';
 
 interface FakeApp {
   url: string;
@@ -10,17 +10,25 @@ interface FakeApp {
   done: Array<{ id: string; ok: boolean; message: string }>;
   sockets: Set<WebSocket>;
   auth: string[];
+  requests(): number;
   close(): Promise<void>;
 }
 
 async function fakeApp(): Promise<FakeApp> {
   let queued: string[] = [];
+  let requests = 0;
   let next = 1;
   const done: FakeApp['done'] = [];
   const auth: string[] = [];
   const sockets = new Set<WebSocket>();
   const server: Server = createServer((req, res) => {
     auth.push(req.headers.authorization ?? '');
+    if (req.url === '/plugins/publish/requests') {
+      requests++;
+      queued = [...queued, `job-${next++}`];
+      sockets.forEach((ws) => ws.send(JSON.stringify({ type: 'job' })));
+      return res.writeHead(201).end('{}');
+    }
     if (req.url === '/plugins/publish/jobs/claim') {
       const id = queued.shift();
       if (id === undefined) return res.writeHead(204).end();
@@ -49,6 +57,7 @@ async function fakeApp(): Promise<FakeApp> {
     done,
     sockets,
     auth,
+    requests: () => requests,
     close: () => new Promise((r) => { wss.clients.forEach((c) => c.terminate()); server.close(() => r()); }),
   };
 }
@@ -100,5 +109,41 @@ describe('scms agent', () => {
     await until(() => app!.sockets.size === 0);
     app.queue();
     await until(() => app!.done.length === 1);
+  });
+});
+
+describe('scheduled publishing (ADR 7)', () => {
+  // Due dates once, then nothing, as a build that made the record live would leave it.
+  const once = (schedule: () => { dates: number[]; lastBuilt: number | null }): Scheduler => {
+    let calls = 0;
+    return async () => (calls++ === 0 ? schedule() : { dates: [], lastBuilt: Date.now() });
+  };
+
+  it('requests a publish when a published record\'s date arrives', async () => {
+    app = await fakeApp();
+    const scheduler = once(() => ({ dates: [Date.now() + 200], lastBuilt: Date.now() - 60_000 }));
+    agent = runAgent([{ dir: '/sites/demo', app: app.url, deploy: 'true' }], { publisher: ok, scheduler, log: () => {} });
+    await until(() => app!.done.length === 1);
+    expect(app.requests()).toBe(1);
+  });
+
+  it('publishes at once when a date passed while no build ran', async () => {
+    app = await fakeApp();
+    const scheduler = once(() => ({ dates: [Date.now() - 1000], lastBuilt: Date.now() - 60_000 }));
+    agent = runAgent([{ dir: '/sites/demo', app: app.url, deploy: 'true' }], { publisher: ok, scheduler, log: () => {} });
+    await until(() => app!.done.length === 1);
+  });
+
+  it('does nothing for a date the last build already covered', async () => {
+    app = await fakeApp();
+    let planned = 0;
+    const scheduler: Scheduler = async () => {
+      planned++;
+      return { dates: [Date.now() - 60_000], lastBuilt: Date.now() - 1000 };
+    };
+    agent = runAgent([{ dir: '/sites/demo', app: app.url, deploy: 'true' }], { publisher: ok, scheduler, log: () => {} });
+    await until(() => planned === 1);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(app.requests()).toBe(0);
   });
 });

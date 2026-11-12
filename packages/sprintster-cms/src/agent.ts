@@ -68,8 +68,29 @@ function authHeaders(site: AgentSite): Record<string, string> {
   return { authorization: `Basic ${Buffer.from(`${site.user}:${password}`).toString('base64')}` };
 }
 
+// ADR 9: the dates of every schedule still holding, and when the last successful build started reading.
+export interface Schedule {
+  dates: number[];
+  lastBuilt: number | null;
+}
+
+export type Scheduler = (site: AgentSite) => Promise<Schedule>;
+
+export const appScheduler: Scheduler = async (site) => {
+  const res = await fetch(`${site.app}/plugins/publish/schedule`, { headers: authHeaders(site) });
+  if (!res.ok) throw new Error(`schedule request failed with status ${res.status}`);
+  const body = (await res.json()) as { dates: string[]; lastBuilt: string | null };
+  return { dates: body.dates.map((d) => Date.parse(d)), lastBuilt: body.lastBuilt === null ? null : Date.parse(body.lastBuilt) };
+};
+
+// setTimeout takes at most about 24.8 days; a later date is planned again when this much has passed.
+const MAX_TIMER_MS = 2 ** 31 - 1;
+// Fired a moment after the date, so the build reads the record as due.
+const DUE_SLACK_MS = 1000;
+
 export interface AgentOptions {
   publisher?: Publisher;
+  scheduler?: Scheduler;
   log?: (message: string) => void;
   pingSeconds?: number;
   maxBackoffSeconds?: number;
@@ -82,6 +103,7 @@ export interface AgentHandle {
 // Claims on every push and on every (re)connect, so a request made while the agent was offline is still picked up.
 export function runAgent(sites: readonly AgentSite[], opts: AgentOptions = {}): AgentHandle {
   const publisher = opts.publisher ?? shellPublisher;
+  const scheduler = opts.scheduler ?? appScheduler;
   const log = opts.log ?? ((m: string) => console.log(`${new Date().toISOString()} ${m}`));
   const stops: Array<() => void> = [];
 
@@ -96,6 +118,34 @@ export function runAgent(sites: readonly AgentSite[], opts: AgentOptions = {}): 
     let socket: WebSocket | undefined;
     let ping: NodeJS.Timeout | undefined;
     let retry: NodeJS.Timeout | undefined;
+    let due: NodeJS.Timeout | undefined;
+
+    const requestPublish = async (why: string) => {
+      log(`${name}: ${why}, publishing`);
+      const res = await fetch(route('/requests'), { method: 'POST', headers });
+      if (!res.ok) throw new Error(`publish request failed with status ${res.status}`);
+    };
+
+    // One timer per site for the next publish date; a date passed since the last build is published at once (ADR 7).
+    async function plan(): Promise<void> {
+      clearTimeout(due);
+      if (stopped) return;
+      try {
+        const { dates, lastBuilt } = await scheduler(site);
+        const now = Date.now();
+        if (lastBuilt !== null && dates.some((d) => d > lastBuilt && d <= now)) {
+          await requestPublish('a scheduled date passed while no build ran');
+          return;
+        }
+        const next = Math.min(...dates.filter((d) => d > now));
+        if (!Number.isFinite(next)) return;
+        const wait = next - now + DUE_SLACK_MS;
+        due = setTimeout(() => void (wait > MAX_TIMER_MS ? plan() : requestPublish('a scheduled date arrived').catch((err: unknown) => log(`${name}: ${String(err)}`))), Math.min(wait, MAX_TIMER_MS));
+        log(`${name}: next scheduled publish ${new Date(next).toISOString()}`);
+      } catch (err) {
+        log(`${name}: cannot plan scheduled publishing: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
 
     const report = (job: Job, ok: boolean, message: string) =>
       fetch(route(`/jobs/${job.id}/done`), {
@@ -126,6 +176,7 @@ export function runAgent(sites: readonly AgentSite[], opts: AgentOptions = {}): 
               const message = `${built}, deployed in ${((Date.now() - started) / 1000).toFixed(0)}s`;
               await report(job, true, message);
               log(`${name}: published, ${message}`);
+              void plan();
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
               await report(job, false, message);
@@ -148,8 +199,12 @@ export function runAgent(sites: readonly AgentSite[], opts: AgentOptions = {}): 
         log(`${name}: connected to ${site.app}`);
         ping = setInterval(() => socket?.ping(), (opts.pingSeconds ?? 30) * 1000);
         void drain();
+        void plan();
       });
-      socket.on('message', () => void drain());
+      socket.on('message', () => {
+        void drain();
+        void plan();
+      });
       socket.on('error', () => {});
       socket.on('close', () => {
         clearInterval(ping);
@@ -165,6 +220,7 @@ export function runAgent(sites: readonly AgentSite[], opts: AgentOptions = {}): 
       stopped = true;
       clearInterval(ping);
       clearTimeout(retry);
+      clearTimeout(due);
       socket?.close();
     });
   }

@@ -174,3 +174,49 @@ the start.
   epic.
 - **The reference index**, before removal can say what still points at a record,
   and before records can safely dedup by content hash.
+
+## Next: publishing per record
+
+Per-record publishing and scheduled builds
+([ADR 7](./docs/ADR/0007-publishing-per-record.md)), linked files served from
+the blob store ([ADR 8](./docs/ADR/0008-linked-files-from-the-blob-store.md)).
+Needs core's `listAt`, record actions and `blobResponse`.
+
+- [x] **1. Published positions.** The `publication` object, the baseline (from
+      the last build on upgrade), record Publish with its references, Publish
+      all, the record badge and the pending count.
+      *Done when:* publishing one record leaves another record's later edit
+      off the site, and an upgraded site builds unchanged.
+- [x] **2. Builds read published versions.** `GET /plugins/publish/records/:object`;
+      preview and serve stay current.
+      *Done when:* a build after an unpublished edit renders the published text.
+- [x] **3. Scheduled builds.** One timer per site in the agent, set from the
+      published records after each build and on connect.
+      *Done when:* a published record dated a minute ahead goes live with no
+      Publish press, and two dates give two builds.
+- [x] **4. Linked files from the blob store.** `linkedFiles: "blob-store"`
+      writes `_files.json` instead of copies; the site Worker and `scms serve`
+      serve the listed paths.
+      *Done when:* a linked file downloads from the built site and an unlisted
+      hash does not.
+
+## Next: publication states and scheduling
+
+[ADR 9](./docs/ADR/0009-publication-states-and-scheduling.md).
+Needs core ADR 25.
+
+- [x] **1. Dates and states.** `publishedAt`, `lastPublishedAt`, `scheduledAt`
+      and `scheduledPosition` on publication rows; published, scheduled and
+      pending worked out from them; any edit drops a schedule; first dates of
+      older records from their own `publishedAt` or `createdAt`.
+      *Done when:* a scheduled record goes live at its date and an edit before
+      it makes the record pending again.
+- [x] **2. Admin.** The state column (green, yellow, red), the Publish row
+      button and dialog (now or a date), `status` and `publishedAt` gone from
+      forms.
+      *Done when:* an editor publishes or schedules from the list.
+- [x] **3. Builds and the agent.** The build route adds `publishedAt` and
+      `lastPublishedAt`; the agent's timer follows the plugin's next
+      `scheduledAt`.
+      *Done when:* tanarblog sorts by first publish date with no `publishedAt`
+      field on its articles.

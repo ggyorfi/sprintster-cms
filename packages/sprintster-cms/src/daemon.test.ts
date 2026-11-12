@@ -105,6 +105,16 @@ describe('connectDaemon', () => {
     expect(calls.map((c) => c.url)).toContain('http://d/site-settings');
   });
 
+  it('reads published rows from the publish plugin, and current rows without one (ADR 7)', async () => {
+    const published = await connectDaemon({
+      baseUrl: 'http://d',
+      fetch: stubFetch({ ...healthy, '/site-settings': { id: 'a', siteTitle: 'Draft' }, '/plugins/publish/records/settings': [{ id: 'a', siteTitle: 'Live' }] }),
+    });
+    expect(await published.publishedRows!('settings')).toEqual([{ id: 'a', siteTitle: 'Live' }]);
+    const plain = await connectDaemon({ baseUrl: 'http://d', fetch: stubFetch({ ...healthy, '/site-settings': { id: 'a', siteTitle: 'Draft' } }) });
+    expect(await plain.publishedRows!('settings')).toEqual([{ id: 'a', siteTitle: 'Draft' }]);
+  });
+
   it('names the served objects when asked for an unknown one', async () => {
     const daemon = await connectDaemon({ baseUrl: 'http://d', fetch: stubFetch(healthy) });
     await expect(daemon.rows('page')).rejects.toThrow(/has: settings/);

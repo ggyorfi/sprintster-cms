@@ -29,6 +29,8 @@ export interface Daemon {
   locales: readonly string[];
   object(name: string): ObjectConfig;
   rows(objectName: string): Promise<Row[]>;
+  // Each record as published (ADR 7), or its current state when the app has no publish plugin.
+  publishedRows?(objectName: string): Promise<Row[]>;
   asset(hash: string): Promise<Asset>;
 }
 
@@ -111,6 +113,13 @@ export async function connectDaemon(opts: ConnectOptions = {}): Promise<Daemon> 
       object(objectName);
       return client.object<Row>(objectName).list();
     },
+    publishedRows: async (objectName) => {
+      object(objectName);
+      const res = await fetchImpl(`${baseUrl}/plugins/publish/records/${encodeURIComponent(objectName)}`);
+      if (res.status === 404) return client.object<Row>(objectName).list();
+      if (!res.ok) throw new Error(`GET ${baseUrl}/plugins/publish/records/${objectName} failed with status ${res.status}`);
+      return (await res.json()) as Row[];
+    },
     asset: async (hash) => {
       const assetRes = await fetchImpl(`${baseUrl}/assets/${hash}`);
       if (!assetRes.ok) throw new Error(`GET ${baseUrl}/assets/${hash} failed with status ${assetRes.status}`);
@@ -141,5 +150,13 @@ export function withoutPrivate(daemon: Daemon, names: readonly string[]): Daemon
       if (hidden.has(name)) throw new Error(`'${name}' is private in scms.config.json, so the site cannot read it`);
       return daemon.rows(name);
     },
+    ...(daemon.publishedRows === undefined
+      ? {}
+      : {
+          publishedRows: async (name: string) => {
+            if (hidden.has(name)) throw new Error(`'${name}' is private in scms.config.json, so the site cannot read it`);
+            return daemon.publishedRows!(name);
+          },
+        }),
   };
 }

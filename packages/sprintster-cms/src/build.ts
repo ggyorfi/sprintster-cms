@@ -32,6 +32,8 @@ export interface BuildReport {
 }
 
 const CONCURRENCY = 4;
+// ADR 8: the linked files a host serves from the blob store, by the path pages link to.
+export const FILES_MANIFEST = '_files.json';
 
 // Every URL the site serves in one language: the home record, each list page, each live record.
 export function enumerateRoutes(content: SiteContent, collections: readonly Collection[]): RouteMatch[] {
@@ -92,7 +94,7 @@ export async function build(opts: BuildOptions = {}): Promise<BuildReport> {
   const collections = buildCollections(site, daemon.objects, daemon.locales);
   const theme = loadTheme(site.theme, root);
   const media = createMedia(daemon, site, root);
-  const content = await loadContent(daemon, collections);
+  const content = await loadContent(daemon, collections, { published: true });
   const maintenanceOn = inMaintenance(maintenanceSwitch(site, daemon.objects, theme), content);
   if (maintenanceOn) {
     await rm(outDir, { recursive: true, force: true });
@@ -147,10 +149,19 @@ export async function build(opts: BuildOptions = {}): Promise<BuildReport> {
     await write(outDir, `${originalPrefix}${id}`, (await daemon.asset(hash)).bytes);
   });
 
-  await inBatches([...linked], async (id) => {
-    const file = fileOf(content.assetsById.get(id)!)!;
-    await write(outDir, fileLinkPath(site, id, String(file['filename'])), (await daemon.asset(String(file['hash']))).bytes);
-  });
+  if (site.linkedFiles === 'blob-store') {
+    const manifest: Record<string, { hash: string; filename: string }> = {};
+    for (const id of linked) {
+      const file = fileOf(content.assetsById.get(id)!)!;
+      manifest[fileLinkPath(site, id, String(file['filename']))] = { hash: String(file['hash']), filename: String(file['filename']) };
+    }
+    await write(outDir, FILES_MANIFEST, JSON.stringify(manifest));
+  } else {
+    await inBatches([...linked], async (id) => {
+      const file = fileOf(content.assetsById.get(id)!)!;
+      await write(outDir, fileLinkPath(site, id, String(file['filename'])), (await daemon.asset(String(file['hash']))).bytes);
+    });
+  }
 
   await copyThemeStatic(theme.dirs, outDir);
   return { outDir, pages, renditions: names.length, originals: originals.size, files: linked.size, maintenance: false };

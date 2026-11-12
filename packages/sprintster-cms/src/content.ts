@@ -18,6 +18,8 @@ export interface SiteContent {
 export interface LoadOptions {
   preview?: boolean;
   now?: Date;
+  // A build renders each record as published (ADR 7); preview and serve show the current state.
+  published?: boolean;
 }
 
 export function slugOf(row: Row): string {
@@ -82,7 +84,8 @@ export async function loadContent(daemon: Daemon, collections: readonly Collecti
   const preview = opts.preview ?? false;
   const now = (opts.now ?? new Date()).getTime();
   const byObject = new Map(collections.map((c) => [c.object, c]));
-  const fetched = await Promise.all(daemon.objects.map(async (obj) => [obj, await daemon.rows(obj.name)] as const));
+  const read = opts.published === true && daemon.publishedRows !== undefined ? daemon.publishedRows.bind(daemon) : daemon.rows.bind(daemon);
+  const fetched = await Promise.all(daemon.objects.map(async (obj) => [obj, await read(obj.name)] as const));
 
   const rows = new Map<string, Row[]>();
   for (const [obj, all] of fetched) {
