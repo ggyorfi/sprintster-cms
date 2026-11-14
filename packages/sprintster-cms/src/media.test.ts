@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, statSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
@@ -84,6 +84,22 @@ describe('createMedia', () => {
     expect(daemon.fetched.every((h) => h === hashB)).toBe(true);
     for (const [name, mtime] of before) expect(statSync(join(root, '.scms/cache/renditions', name)).mtimeMs).toBe(mtime);
     expect(cached().filter((n) => n.startsWith('bbbb'))).toHaveLength(4);
+  });
+
+  it('keeps what it measured when the build fails partway, so a retry carries on', async () => {
+    const records = Array.from({ length: 9 }, (_, i) => record(`r${i}`, String(i).repeat(64)));
+    for (let i = 0; i < 8; i++) blobs.set(String(i).repeat(64), blobs.get(hashA)!);
+    const media = createMedia(fakeDaemon(blobs), site, root);
+    await expect(media.seam(contentOf(records))).rejects.toThrow(/no blob/);
+    const probes = JSON.parse(readFileSync(join(root, '.scms/cache/probes.json'), 'utf8'));
+    expect(Object.keys(probes)).toHaveLength(8);
+  });
+
+  it('measures an image it cannot read as one without renditions, instead of failing the build', async () => {
+    blobs.set(hashB, new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]));
+    await renderAndFetch(fakeDaemon(blobs), contentOf([record('a1', hashA), record('b1', hashB)]), 'a1');
+    const probes = JSON.parse(readFileSync(join(root, '.scms/cache/probes.json'), 'utf8'));
+    expect(probes[hashB]).toEqual({ width: 0, height: 0, format: null });
   });
 
   it('produces no files for an unreferenced library entry, and refuses a name no page asked for', async () => {

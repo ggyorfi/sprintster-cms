@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import WebSocket from 'ws';
 import { z } from 'zod';
 import { build } from './build.js';
+import { copyPath, syncCopy } from './published-copy.js';
 
 export const AGENT_CONFIG_FILE = 'scms.agent.json';
 
@@ -31,7 +32,7 @@ interface Job {
 }
 
 export interface Publisher {
-  build(site: AgentSite): Promise<string>;
+  build(site: AgentSite, log?: (message: string) => void): Promise<string>;
   deploy(site: AgentSite): Promise<void>;
 }
 
@@ -55,8 +56,13 @@ function runShell(command: string, cwd: string): Promise<void> {
 }
 
 export const shellPublisher: Publisher = {
-  async build(site) {
-    const report = await build({ root: site.dir, app: site.app, headers: authHeaders(site) });
+  async build(site, log) {
+    const headers = authHeaders(site);
+    const withHeaders: typeof fetch = (input, init) => fetch(input, { ...init, headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) } });
+    // ADR 10: only the published changes since the last build cross the network; the build reads the local copy.
+    const copy = await syncCopy(site.app.replace(/\/$/, ''), copyPath(site.dir), withHeaders, log);
+    const published = copy === null ? undefined : (name: string) => Object.values(copy.objects[name] ?? {});
+    const report = await build({ root: site.dir, app: site.app, headers, ...(published === undefined ? {} : { published }), ...(log === undefined ? {} : { log }) });
     return report.maintenance ? 'maintenance page only' : `${report.pages} pages, ${report.renditions} images`;
   },
   deploy: (site) => runShell(site.deploy, site.dir),
@@ -171,7 +177,8 @@ export function runAgent(sites: readonly AgentSite[], opts: AgentOptions = {}): 
             const started = Date.now();
             log(`${name}: publishing`);
             try {
-              const built = await publisher.build(site);
+              const built = await publisher.build(site, (m) => log(`${name}: ${m}`));
+              log(`${name}: built, ${built}; deploying`);
               await publisher.deploy(site);
               const message = `${built}, deployed in ${((Date.now() - started) / 1000).toFixed(0)}s`;
               await report(job, true, message);

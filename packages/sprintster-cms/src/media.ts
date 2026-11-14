@@ -4,6 +4,7 @@ import sharp from 'sharp';
 import type { SiteConfig } from './config.js';
 import type { SiteContent } from './content.js';
 import type { Daemon } from './daemon.js';
+import type { Progress } from './progress.js';
 import { fileOf, type ImageSeam } from './images.js';
 import {
   createRenditionSeam,
@@ -21,12 +22,14 @@ export interface ServedRendition {
 }
 
 export interface Media {
-  seam(content: SiteContent): Promise<ImageSeam>;
+  seam(content: SiteContent, progress?: Progress): Promise<ImageSeam>;
   rendition(name: string): Promise<ServedRendition | null>;
   demanded(): string[];
 }
 
 const PROBES_FILE = 'probes.json';
+const PROBE_BATCH = 8;
+const SAVE_EVERY = 200;
 const RENDITIONS_DIR = 'renditions';
 
 // Write then rename, so a reader never sees half a file and a crash leaves no truncated rendition behind.
@@ -66,8 +69,14 @@ export function createMedia(daemon: Daemon, site: SiteConfig, root: string): Med
     const asset = await daemon.asset(hash);
     const format = sourceFormat(typeof recorded === 'string' ? recorded : asset.contentType);
     if (format === null) return { width: 0, height: 0, format: null };
-    const { width, height } = (await sharp(asset.bytes).metadata()).autoOrient;
-    return { width, height, format };
+    // An image sharp cannot read is shown as it is, like a file it cannot resize, rather than failing the build.
+    try {
+      const { width, height } = (await sharp(asset.bytes).metadata()).autoOrient;
+      return { width, height, format };
+    } catch (err) {
+      console.warn(`image ${hash} cannot be read, shown without renditions: ${err instanceof Error ? err.message : String(err)}`);
+      return { width: 0, height: 0, format: null };
+    }
   }
 
   async function encode(name: string, request: EncodeRequest): Promise<ServedRendition> {
@@ -80,7 +89,7 @@ export function createMedia(daemon: Daemon, site: SiteConfig, root: string): Med
   }
 
   return {
-    async seam(content) {
+    async seam(content, progress) {
       const known = await loadProbes();
       const missing = new Map<string, unknown>();
       for (const asset of content.assets) {
@@ -89,10 +98,24 @@ export function createMedia(daemon: Daemon, site: SiteConfig, root: string): Med
         if (typeof hash === 'string' && !known.has(hash)) missing.set(hash, file?.['contentType']);
       }
       if (missing.size > 0) {
-        const measured = await Promise.all([...missing].map(async ([hash, type]) => [hash, await probe(hash, type)] as const));
-        for (const [hash, p] of measured) known.set(hash, p);
-        await mkdir(dir, { recursive: true });
-        await writeAtomic(join(dir, PROBES_FILE), JSON.stringify(Object.fromEntries(known), null, 2));
+        progress?.say(`measuring ${missing.size} new images`);
+        // A few at a time, saved as they go: thousands at once fail against a remote app, and a retry keeps what was done.
+        const save = async () => {
+          await mkdir(dir, { recursive: true });
+          await writeAtomic(join(dir, PROBES_FILE), JSON.stringify(Object.fromEntries(known), null, 2));
+        };
+        const queue = [...missing];
+        let count = 0;
+        try {
+          for (let i = 0; i < queue.length; i += PROBE_BATCH) {
+            await Promise.all(queue.slice(i, i + PROBE_BATCH).map(async ([hash, type]) => known.set(hash, await probe(hash, type))));
+            count = Math.min(i + PROBE_BATCH, queue.length);
+            progress?.step('images measured', count, queue.length);
+            if (count % SAVE_EVERY < PROBE_BATCH) await save();
+          }
+        } finally {
+          await save();
+        }
       }
       return createRenditionSeam(content, site, (hash) => known.get(hash), (name, request) => demanded.set(name, request));
     },

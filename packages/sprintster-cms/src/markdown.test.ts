@@ -145,6 +145,16 @@ describe('file links', () => {
     expect(() => linked.render('[Gone](/assets/missing)')).toThrow(/links to an asset that does not exist/);
   });
 
+  it('points an HTML image at its asset record file, in a block and inline', () => {
+    expect(linked.render('<p><img alt="x" src="/assets/doc"></p>')).toBe('<p><img alt="x" src="/assets/doc/Report.pdf"></p>');
+    expect(linked.render("Text <img src='/assets/doc' width=\"10\"> more")).toContain("<img src='/assets/doc/Report.pdf' width=\"10\">");
+  });
+
+  it('refuses an HTML image of an asset that does not exist, and leaves other HTML images alone', () => {
+    expect(() => linked.render('<img src="/assets/missing">')).toThrow(/asset that does not exist/);
+    expect(linked.render('<img src="https://example.com/a.jpg">')).toBe('<img src="https://example.com/a.jpg">');
+  });
+
   it('leaves other links alone', () => {
     expect(linked.render('[Home](/about) [Out](https://example.com/assets/doc)')).toContain('href="/about"');
   });

@@ -1,4 +1,4 @@
-import { eventTypeNames, type Config, type DaemonPlugin, type PluginData } from 'sprintster';
+import { eventTypeNames, MAX_PAGE, type Config, type DaemonPlugin, type PluginData } from 'sprintster';
 import { z } from 'zod';
 
 export const JOB_OBJECT = 'publishJob';
@@ -186,10 +186,10 @@ const STATES: Record<RecordState, { text: string; tone: 'success' | 'warning' | 
   pending: { text: 'Pending', tone: 'danger' },
 };
 
-function stateValue(p: Published, object: string, id: string): { text: string; tone: 'success' | 'warning' | 'danger' } {
+function stateValue(p: Published, object: string, id: string): { text: string; tone: 'success' | 'warning' | 'danger'; hint?: string } {
   const state = recordState(p, object, id);
   if (state !== 'scheduled') return STATES[state];
-  return { ...STATES.scheduled, text: `Scheduled ${schedule(p, object, id)!.at.slice(0, 16).replace('T', ' ')}` };
+  return { ...STATES.scheduled, hint: `Goes live ${schedule(p, object, id)!.at.slice(0, 16).replace('T', ' ')} UTC` };
 }
 
 const ASSET_LINK = /\/assets\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/g;
@@ -223,7 +223,7 @@ export async function status(data: PluginData): Promise<{ text: string; tone: 'i
   const last = all.at(-1);
   if (last?.status === 'failed') return { text: `Publish failed: ${last.message ?? 'see Publishing'}`, tone: 'danger' };
   const p = await published(data);
-  if (p.baseline === 0 && p.rows.size === 0) return { text: 'Not published yet', tone: 'warning' };
+  if (p.baseline === 0 && ![...p.rows.values()].some((r) => !r.object.startsWith('#'))) return { text: 'Not published yet', tone: 'warning' };
   const states = [...p.changed.values()].map((c) => recordState(p, c.object, c.id));
   const pending = states.filter((s) => s === 'pending').length;
   const scheduled = [...p.rows.values()].filter((r) => recordState(p, r.object, r.record) === 'scheduled').length;
@@ -236,7 +236,28 @@ const Done = z.object({ ok: z.boolean(), message: z.string().optional() });
 const PublishRequest = z.object({ object: z.string().min(1), id: z.string().min(1), value: z.string().nullable().optional() });
 
 // `maintenance`: the same `<singleton>.<boolean>` as scms.config.json's; with it, the Maintenance page gets the switch.
-const Config = z.object({ maintenance: z.string().regex(/^\w+\.\w+$/, 'must be <singleton>.<boolean property>').optional() }).strict();
+// `private`: objects never published, such as orders and messages; the same list as scms.config.json's.
+const Config = z
+  .object({
+    maintenance: z.string().regex(/^\w+\.\w+$/, 'must be <singleton>.<boolean property>').optional(),
+    private: z.array(z.string().min(1)).optional(),
+  })
+  .strict();
+
+// ADR 10: the snapshot set holding every record as published, and the marker that it has been built.
+export const PUBLISHED_SET = 'published';
+const SET_MARKER = '#set';
+// Holds only the marker row, pinned in the store that has the published set.
+const SET_HERE = 'published-set-here';
+
+const ListQuery = z.object({
+  q: z.string().optional(),
+  sort: z.string().optional(),
+  fields: z.string().optional(),
+  limit: z.coerce.number().int().optional(),
+  offset: z.coerce.number().int().optional(),
+  after: z.string().optional(),
+});
 
 export const plugin: DaemonPlugin = {
   name: 'sprintster-cms/publish',
@@ -249,7 +270,44 @@ export const plugin: DaemonPlugin = {
     const api = () => ctx.data.object(JOB_OBJECT);
     const publications = () => ctx.data.object(PUBLICATION_OBJECT);
     const actorOf = (request: Request) => request.headers.get(ACTOR_HEADER) ?? undefined;
-    const publishable = (object: string) => !OWN_OBJECTS.has(object) && app.objects.some((o) => o.name === object);
+    const settings = Config.parse(ctx.config ?? {});
+    const hidden = new Set(settings.private ?? []);
+    const publishable = (object: string) => !OWN_OBJECTS.has(object) && !hidden.has(object) && app.objects.some((o) => o.name === object);
+    const rebuildPhrase = app.title ?? 'rebuild';
+    const pin = async (object: string, id: string, position: number) => ctx.data.object(object).pin?.(PUBLISHED_SET, id, position);
+
+    // A site published before ADR 10 has no set yet, and one moved by its log alone (s8r export) has lost it: every
+    // record goes in at its published position. ADR 12: a rebuild does it again on request.
+    async function ensureSet(p: Published, again = false): Promise<void> {
+      if (!again && (await setHere(p))) return;
+      const ids = new Map<string, Set<string>>();
+      for (const c of await ctx.data.changesSince(0)) {
+        if (!publishable(c.object)) continue;
+        const set = ids.get(c.object) ?? new Set<string>();
+        set.add(c.id);
+        ids.set(c.object, set);
+      }
+      for (const [object, set] of ids) for (const id of set) await pin(object, id, positionOf(p, object, id));
+      await writeRow(p, SET_MARKER, PUBLISHED_SET, { position: 0 }, undefined);
+      await publications().pin?.(SET_HERE, p.rows.get(keyOf(SET_MARKER, PUBLISHED_SET))!.id, await ctx.data.position());
+    }
+
+    // The marker row travels with the log, its pin stays with the store: a marker without its pin is a set left behind.
+    async function setHere(p: Published): Promise<boolean> {
+      const marker = p.rows.get(keyOf(SET_MARKER, PUBLISHED_SET));
+      if (marker === undefined) return false;
+      const page = await publications().queryPinned?.(SET_HERE, { ids: [marker.id], limit: 1 });
+      return (page?.rows.length ?? 0) > 0;
+    }
+
+    // ADR 9 and 10: schedules whose date passed go live before a build reads, at the date they were set for.
+    async function applyDueSchedules(p: Published): Promise<void> {
+      for (const r of [...p.rows.values()]) {
+        const s = schedule(p, r.object, r.record);
+        if (s === null || !s.due || !publishable(r.object)) continue;
+        await publishNow(p, r.object, r.record, s.position, undefined, s.at);
+      }
+    }
 
     async function writeRow(p: Published, object: string, record: string, patch: Partial<PublicationRow>, actor: string | undefined): Promise<void> {
       const row = p.rows.get(keyOf(object, record));
@@ -264,15 +322,18 @@ export const plugin: DaemonPlugin = {
     }
 
     // ADR 9: live now. A record never published before goes live for the first time now (or at its own imported date).
-    async function publishNow(p: Published, object: string, id: string, position: number, actor: string | undefined): Promise<void> {
+    async function publishNow(p: Published, object: string, id: string, position: number, actor: string | undefined, at: string = now()): Promise<void> {
       const record = (await ctx.data.object(object).get(id)) as Record<string, unknown> | null;
-      if (record === null) return;
-      const at = now();
+      if (record === null) {
+        await ctx.data.object(object).unpin?.(PUBLISHED_SET, id);
+        return;
+      }
       const c = p.changed.get(keyOf(object, id));
       const first = c?.created != null && c.created > positionOf(p, object, id);
       const own = typeof record['publishedAt'] === 'string' ? record['publishedAt'] : null;
       const publishedAt = first ? (own ?? at) : (datesOf(p, object, record).publishedAt ?? at);
       await writeRow(p, object, id, { position, publishedAt, lastPublishedAt: at, scheduledAt: null, scheduledPosition: null }, actor);
+      await pin(object, id, position);
     }
 
     // ADR 7 and 9: the record, and every record it points at that was never published, transitively, now or on a date.
@@ -341,19 +402,53 @@ export const plugin: DaemonPlugin = {
       },
     });
 
-    // Every record of an object as published, with its publish dates: what a build renders (ADR 7, 9).
+    // Every record of an object as published, with its publish dates, a page at a time: what a build renders (ADR 10).
     ctx.routes.register({
       method: 'GET',
       path: '/records/:object',
-      handler: async (_request, params) => {
+      handler: async (request, params) => {
         const object = params['object'] ?? '';
         if (!publishable(object)) return Response.json({ code: 'not_found', message: `no object '${object}'` }, { status: 404 });
+        const query = ListQuery.safeParse(Object.fromEntries(new URL(request.url).searchParams));
+        if (!query.success) return Response.json({ code: 'bad_request', message: query.error.message }, { status: 400 });
+        const { fields, ...rest } = query.data;
         const p = await published(ctx.data);
-        const positions: Record<string, number> = {};
-        for (const r of p.rows.values()) if (r.object === object) positions[r.record] = positionOf(p, object, r.record);
-        const listAt = ctx.data.object(object).listAt;
-        const records = (listAt === undefined ? await ctx.data.object(object).list() : await listAt({ position: p.baseline, positions })) as Array<Record<string, unknown>>;
-        return Response.json(records.map((r) => ({ ...r, ...datesOf(p, object, r) })));
+        await ensureSet(p);
+        const queryPinned = ctx.data.object(object).queryPinned;
+        if (queryPinned === undefined) return Response.json({ code: 'not_found', message: `'${object}' keeps no published versions` }, { status: 404 });
+        try {
+          const page = await queryPinned(PUBLISHED_SET, { ...rest, ...(fields === undefined ? {} : { fields: fields.split(',').filter(Boolean) }) });
+          return Response.json({ ...page, rows: page.rows.map((r) => ({ ...r, ...datesOf(p, object, r) })) });
+        } catch (err) {
+          const status = (err as { statusCode?: number }).statusCode ?? 500;
+          return Response.json({ code: 'bad_request', message: err instanceof Error ? err.message : String(err) }, { status });
+        }
+      },
+    });
+
+    // ADR 10: what changed in the published set after a sequence number, removed records included, for the agent's copy.
+    ctx.routes.register({
+      method: 'GET',
+      path: '/changes',
+      handler: async (request) => {
+        const url = new URL(request.url);
+        const after = Number(url.searchParams.get('after') ?? '0');
+        const limit = Number(url.searchParams.get('limit') ?? String(MAX_PAGE));
+        if (!Number.isInteger(after) || after < 0 || !Number.isInteger(limit) || limit < 1 || limit > MAX_PAGE) {
+          return Response.json({ code: 'bad_request', message: `after must be a sequence number, limit 1 to ${MAX_PAGE}` }, { status: 400 });
+        }
+        const p = await published(ctx.data);
+        await ensureSet(p);
+        const { pins, next } = await ctx.data.pinnedSince(PUBLISHED_SET, after, limit);
+        const changes = pins
+          .filter((c) => publishable(c.streamType))
+          .map((c) => ({
+            object: c.streamType,
+            id: c.streamId,
+            seq: c.seq,
+            record: c.removed ? null : { ...(c.state as Record<string, unknown>), ...datesOf(p, c.streamType, c.state as Record<string, unknown>) },
+          }));
+        return Response.json({ changes, last: pins.at(-1)?.seq ?? after, next });
       },
     });
 
@@ -379,6 +474,7 @@ export const plugin: DaemonPlugin = {
         const actor = actorOf(request);
         const position = await ctx.data.position();
         const p = await published(ctx.data);
+        await ensureSet(p);
         const waiting = [...new Set([...p.changed.values(), ...[...p.rows.values()].map((r) => ({ object: r.object, id: r.record }))].map((c) => keyOf(c.object, c.id)))]
           .map((k) => k.split('\u0000') as [string, string])
           .filter(([o, i]) => publishable(o) && recordState(p, o, i) !== 'published');
@@ -386,6 +482,20 @@ export const plugin: DaemonPlugin = {
         await writeRow(p, BASELINE, BASELINE, { position }, actor);
         const { queued } = await requestPublish();
         return Response.json({ message: `Everything is published. ${updates(queued)}` });
+      },
+    });
+
+    // ADR 12: no button calls it; the body names the app, so a stray request does nothing.
+    ctx.routes.register({
+      method: 'POST',
+      path: '/rebuild',
+      handler: async (request) => {
+        const confirm = ((await request.json().catch(() => null)) as { confirm?: unknown } | null)?.confirm;
+        if (confirm !== rebuildPhrase) return Response.json({ code: 'bad_request', message: `confirm with { "confirm": "${rebuildPhrase}" }` }, { status: 400 });
+        await ensureSet(await published(ctx.data), true);
+        const { queued } = await requestPublish();
+        console.log(`publish: published set rebuilt by ${actorOf(request) ?? 'an unnamed caller'}`);
+        return Response.json({ message: `The published set is rebuilt. ${updates(queued)}` });
       },
     });
 
@@ -398,7 +508,7 @@ export const plugin: DaemonPlugin = {
       },
     });
 
-    const { maintenance } = Config.parse(ctx.config ?? {});
+    const { maintenance } = settings;
     if (maintenance !== undefined) {
       const [object = '', property = ''] = maintenance.split('.');
       const isOn = async () => (await ctx.data.object(object).get(object))?.[property as never] === true;
@@ -440,6 +550,9 @@ export const plugin: DaemonPlugin = {
       handler: async () => {
         const next = (await jobs(ctx.data)).find((j) => j.status === 'requested');
         if (next === undefined) return new Response(null, { status: 204 });
+        const p = await published(ctx.data);
+        await ensureSet(p);
+        await applyDueSchedules(p);
         const job = await api().update!(next.id, { status: 'building', startedAt: now() });
         return Response.json({ job });
       },
@@ -472,6 +585,7 @@ export const plugin: DaemonPlugin = {
     ctx.gui.column({
       id: 'state',
       label: 'State',
+      width: 11,
       objects: content,
       values: async (object, ids) => {
         const p = await published(ctx.data);

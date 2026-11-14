@@ -62,10 +62,20 @@ export function createSiteApp(site: SiteConfig, daemon: Daemon, theme: Theme, me
     });
   });
 
-  app.get(`${assets}/:id/:name`, async (c) => {
+  // One record is enough to serve one file; loading the whole site for it took seconds per image.
+  async function linkedFile(id: string): Promise<Record<string, unknown> | null> {
+    if (daemon.record !== undefined && daemon.assetsObject !== undefined) {
+      const record = await daemon.record(daemon.assetsObject, id);
+      const file = record === null ? null : fileOf(record);
+      return file !== null && typeof file['hash'] === 'string' ? file : null;
+    }
     const content = await loadContent(daemon, collections, { preview: true });
+    return createFileLinks(content, site)(id) === null ? null : fileOf(content.assetsById.get(id)!);
+  }
+
+  app.get(`${assets}/:id/:name`, async (c) => {
     const id = c.req.param('id');
-    const file = createFileLinks(content, site)(id) === null ? null : fileOf(content.assetsById.get(id)!);
+    const file = await linkedFile(id);
     if (file === null || c.req.param('name') !== safeFileName(String(file['filename']))) return c.notFound();
     const blob = await daemon.asset(String(file['hash']));
     return c.body(new Uint8Array(blob.bytes), 200, { 'content-type': blob.contentType });

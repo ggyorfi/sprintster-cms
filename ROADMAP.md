@@ -220,3 +220,41 @@ Needs core ADR 25.
       `scheduledAt`.
       *Done when:* tanarblog sorts by first publish date with no `publishedAt`
       field on its articles.
+
+## Next: published snapshots and the agent's copy
+
+[ADR 10](./docs/ADR/0010-published-snapshots-and-the-agent-copy.md). Needs
+core's paged lists and pinned snapshots.
+
+- [x] **1. Published set.** Publishing, Publish all, maintenance and published
+      deletes pin and unpin; due schedules pinned when a build is claimed; the
+      records route paged over the set; `GET /plugins/publish/changes`.
+      *Done when:* a build reads published records page by page from the set.
+- [x] **2. The agent's copy.** Stored per site with its sequence, updated from
+      the changes, rebuilt in full when missing or unknown.
+      *Done when:* a second build of tanarblog fetches only what changed.
+- [x] **3. scms reads page by page.** Preview and `scms serve` through
+      `listAll`.
+      *Done when:* no scms read asks for a whole object at once.
+
+## Next: images written as HTML
+
+[ADR 11](./docs/ADR/0011-html-images.md).
+
+- [x] **1. Build.** An HTML `<img>` of `/assets/<id>` shows the record's
+      linked file.
+      *Done when:* tanarblog's imported articles show their images on the site.
+- [x] **2. Admin editor.** Shows those images from the API.
+      *Done when:* an imported article's images show in the editor.
+
+## Next: rebuilding the published set
+
+[ADR 12](./docs/ADR/0012-rebuilding-the-published-set.md).
+
+- [x] **1. A set left behind.** The marker pinned in the store; a marker
+      without its pin builds the set again.
+      *Done when:* tanarblog moved by `s8r export`/`import` publishes its
+      articles without an extra step.
+- [x] **2. Rebuild on request.** `POST /plugins/publish/rebuild`, confirmed by
+      the app title; tenants: admin only, `just rebuild <site> <dev|prod>`.
+      *Done when:* a rebuild from the laptop refreshes the agent's copy.

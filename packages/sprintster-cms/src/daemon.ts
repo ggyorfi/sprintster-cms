@@ -20,6 +20,9 @@ export interface Asset {
   contentType: string;
 }
 
+// A remote app over the network: a dropped connection or a 5xx is tried again before the build fails.
+const ASSET_ATTEMPTS = 3;
+
 export interface Daemon {
   baseUrl: string;
   objects: readonly ObjectConfig[];
@@ -29,6 +32,8 @@ export interface Daemon {
   locales: readonly string[];
   object(name: string): ObjectConfig;
   rows(objectName: string): Promise<Row[]>;
+  // One record as it is now, or null.
+  record?(objectName: string, id: string): Promise<Row | null>;
   // Each record as published (ADR 7), or its current state when the app has no publish plugin.
   publishedRows?(objectName: string): Promise<Row[]>;
   asset(hash: string): Promise<Asset>;
@@ -113,20 +118,41 @@ export async function connectDaemon(opts: ConnectOptions = {}): Promise<Daemon> 
       object(objectName);
       return client.object<Row>(objectName).list();
     },
+    record: async (objectName, id) => {
+      object(objectName);
+      return client.object<Row>(objectName).get(id);
+    },
     publishedRows: async (objectName) => {
       object(objectName);
-      const res = await fetchImpl(`${baseUrl}/plugins/publish/records/${encodeURIComponent(objectName)}`);
-      if (res.status === 404) return client.object<Row>(objectName).list();
-      if (!res.ok) throw new Error(`GET ${baseUrl}/plugins/publish/records/${objectName} failed with status ${res.status}`);
-      return (await res.json()) as Row[];
+      const rows: Row[] = [];
+      let after: string | null = null;
+      for (;;) {
+        const url = `${baseUrl}/plugins/publish/records/${encodeURIComponent(objectName)}?limit=100${after === null ? '' : `&after=${after}`}`;
+        const res = await fetchImpl(url);
+        if (res.status === 404 && after === null) return client.object<Row>(objectName).list();
+        if (!res.ok) throw new Error(`GET ${url} failed with status ${res.status}`);
+        const page = (await res.json()) as { rows: Row[]; next: string | null };
+        rows.push(...page.rows);
+        if (page.next === null) return rows;
+        after = page.next;
+      }
     },
     asset: async (hash) => {
-      const assetRes = await fetchImpl(`${baseUrl}/assets/${hash}`);
-      if (!assetRes.ok) throw new Error(`GET ${baseUrl}/assets/${hash} failed with status ${assetRes.status}`);
-      return {
-        bytes: new Uint8Array(await assetRes.arrayBuffer()),
-        contentType: assetRes.headers.get('content-type') ?? 'application/octet-stream',
-      };
+      const url = `${baseUrl}/assets/${hash}`;
+      for (let attempt = 1; ; attempt++) {
+        try {
+          const assetRes = await fetchImpl(url);
+          if (assetRes.status >= 500 && attempt < ASSET_ATTEMPTS) throw new Error(`status ${assetRes.status}`);
+          if (!assetRes.ok) throw new Error(`GET ${url} failed with status ${assetRes.status}`);
+          return {
+            bytes: new Uint8Array(await assetRes.arrayBuffer()),
+            contentType: assetRes.headers.get('content-type') ?? 'application/octet-stream',
+          };
+        } catch (err) {
+          if (attempt >= ASSET_ATTEMPTS || (err instanceof Error && err.message.startsWith('GET '))) throw err;
+          await new Promise((r) => setTimeout(r, 1000 * attempt));
+        }
+      }
     },
   };
 }

@@ -62,6 +62,19 @@ export function createMarkdown(opts: MarkdownOptions): MarkdownIt {
     return renderLinkOpen(tokens, idx, options, env, self);
   };
 
+  // ADR 11: an image written as HTML gets no renditions; it shows the record's file as is.
+  const htmlImages = (html: string) =>
+    html.replace(/(<img\b[^>]*?\ssrc=)(["'])([^"']*)\2/gi, (whole, start: string, quote: string, src: string) => {
+      const parsed = parseAssetUrl(src, opts.assetsPrefix);
+      if (parsed === null || opts.files === undefined) return whole;
+      if ('error' in parsed) throw new Error(parsed.error);
+      const url = opts.files(parsed.assetId);
+      if (url === null) throw new Error(`body references an asset that does not exist: ${src}`);
+      return `${start}${quote}${escape(url)}${quote}`;
+    });
+  md.renderer.rules['html_block'] = (tokens, idx) => htmlImages(tokens[idx]?.content ?? '');
+  md.renderer.rules['html_inline'] = (tokens, idx) => htmlImages(tokens[idx]?.content ?? '');
+
   md.renderer.rules['image'] = (tokens, idx) => {
     const token = tokens[idx];
     if (token === undefined) return '';

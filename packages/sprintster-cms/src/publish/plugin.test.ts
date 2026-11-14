@@ -52,10 +52,12 @@ const settings = {
   views: [{ name: 'default', title: 'Settings', fields: [{ property: 'maintenance' }] }],
 };
 
-async function setup(pluginConfig: Record<string, unknown> = {}) {
-  const config = loadConfig({ version: '1', objects: [tag, page, settings, ...contributedObjects] });
+async function setup(pluginConfig: Record<string, unknown> = {}, log: InMemoryEventStore | null = null) {
+  const config = loadConfig({ version: '1', title: 'Test site', objects: [tag, page, settings, ...contributedObjects] });
   setAppConfig(config);
   const store = new InMemoryEventStore();
+  // Another store's log, as s8r import appends it: events only, no published set.
+  for (const e of log === null ? [] : await log.findSince(0)) await store.append(e);
   const apis: Record<string, PluginObjectApi<{ id: string }>> = {};
   for (const o of config.objects) apis[o.name] = createObjectApi<{ id: string }>(store, o, { resolveTarget: (name) => apis[name] });
   const routes: PluginRoute[] = [];
@@ -70,7 +72,12 @@ async function setup(pluginConfig: Record<string, unknown> = {}) {
     routes: { register: (r: PluginRoute) => routes.push(r) },
     channels: { open: () => ({ send: (m: unknown) => pushed.push(m) }) },
     gui: { action: (a: { id: string }) => gui.push(a), badge: (b: { id: string }) => gui.push(b), column: (c: { id: string }) => columns.push(c) },
-    data: { object: (name: string) => apis[name]!, position: () => store.position(), changesSince: (p: number) => changesSince(store, p) },
+    data: {
+      object: (name: string) => apis[name]!,
+      position: () => store.position(),
+      changesSince: (p: number) => changesSince(store, p),
+      pinnedSince: (set: string, after: number, limit: number) => store.states.pins.since(set, 0, after, limit),
+    },
   } as unknown as DaemonPluginContext;
   await plugin.init(ctx);
   const call = async (method: string, path: string, body?: unknown) => {
@@ -81,9 +88,9 @@ async function setup(pluginConfig: Record<string, unknown> = {}) {
     return { status: res.status, body: res.status === 204 ? null : ((await res.json()) as Record<string, any>) };
   };
   const addPage = (title: string, tags: string[] | null = null) => apis['page']!.add!({ id: crypto.randomUUID(), title, tags });
-  const titles = async () => ((await call('GET', '/records/page')).body as unknown as Array<{ title: string }>).map((r) => r.title).sort();
+  const titles = async () => ((await call('GET', '/records/page')).body!['rows'] as Array<{ title: string }>).map((r) => r.title).sort();
   const badge = async (id: string, object = 'page') => (await call('GET', `/records/status?object=${object}&id=${id}`)).body!['text'];
-  const pages = async () => (await call('GET', '/records/page')).body as unknown as Array<{ id: string; title: string; publishedAt: string; lastPublishedAt: string }>;
+  const pages = async () => (await call('GET', '/records/page')).body!['rows'] as Array<{ id: string; title: string; publishedAt: string; lastPublishedAt: string }>;
   return { call, addPage, pushed, gui, columns, apis, store, titles, badge, pages };
 }
 
@@ -169,7 +176,7 @@ describe('publish plugin', () => {
     await apis['tag']!.update!(t.id, { title: 'renamed, not ready' });
     const p = await addPage('Fresh', [t.id]);
     await call('POST', '/records/publish', { object: 'page', id: p.id });
-    const tags = (await call('GET', '/records/tag')).body as unknown as Array<{ title: string }>;
+    const tags = (await call('GET', '/records/tag')).body!['rows'] as Array<{ title: string }>;
     expect(tags.map((x) => x.title)).toEqual(['news']);
   });
 
@@ -221,12 +228,15 @@ describe('publication states and scheduling (ADR 9)', () => {
     const p = await addPage('Friday');
     const when = future(60);
     expect((await call('POST', '/records/publish', { object: 'page', id: p.id, value: when })).body!['message']).toMatch(/^Scheduled/);
-    expect(await badge(p.id)).toMatch(/^Scheduled/);
+    expect(await badge(p.id)).toBe('Scheduled');
     expect(await titles()).toEqual([]);
     expect((await call('GET', '/schedule')).body!['dates']).toEqual([when]);
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(Date.parse(when) + 1000);
     expect(await badge(p.id)).toBe('Published');
+    expect(await pages()).toEqual([]);
+    await call('POST', '/requests');
+    await call('POST', '/jobs/claim');
     expect((await pages()).map((r) => [r.title, r.publishedAt])).toEqual([['Friday', when]]);
   });
 
@@ -268,5 +278,80 @@ describe('publication states and scheduling (ADR 9)', () => {
     const b = await addPage('New');
     const values = await columns.find((c) => c.id === 'state')!.values('page', [a.id, b.id]);
     expect([values[a.id], values[b.id]]).toEqual([{ text: 'Published', tone: 'success' }, { text: 'Pending', tone: 'danger' }]);
+  });
+});
+
+describe('the published set and its change feed (ADR 10)', () => {
+  it('feeds publishes and published deletes in order, with publish dates, page by page', async () => {
+    const { call, addPage, apis } = await setup();
+    const a = await addPage('A');
+    const b = await addPage('B');
+    await call('POST', '/all');
+    const first = (await call('GET', '/changes?after=0&limit=1')).body!;
+    expect(first['changes']).toHaveLength(1);
+    expect(first['next']).not.toBeNull();
+    const all = (await call('GET', '/changes?after=0')).body!;
+    expect(all['changes'].map((c: { id: string }) => c.id).sort()).toEqual([a.id, b.id].sort());
+    expect(all['changes'][0].record.publishedAt).toEqual(expect.any(String));
+    await apis['page']!.remove!(a.id);
+    await call('POST', '/records/publish', { object: 'page', id: a.id });
+    const after = (await call('GET', `/changes?after=${all['last']}`)).body!;
+    expect(after['changes']).toEqual([expect.objectContaining({ id: a.id, record: null })]);
+  });
+
+  it('never publishes a private object', async () => {
+    const { call, apis } = await setup({ private: ['tag'] });
+    const t = await apis['tag']!.add!({ id: crypto.randomUUID(), title: 'secret' });
+    expect((await call('POST', '/records/publish', { object: 'tag', id: t.id })).status).toBe(400);
+    await call('POST', '/all');
+    expect(((await call('GET', '/changes?after=0')).body!['changes'] as Array<{ object: string }>).some((c) => c.object === 'tag')).toBe(false);
+    expect((await call('GET', '/records/tag')).status).toBe(404);
+  });
+
+  it('pages the published records and refuses a bad query', async () => {
+    const { call, addPage } = await setup();
+    for (const t of ['A', 'B', 'C']) await addPage(t);
+    await call('POST', '/all');
+    const page = (await call('GET', '/records/page?limit=2&sort=title')).body!;
+    expect(page['rows'].map((r: { title: string }) => r.title)).toEqual(['A', 'B']);
+    const rest = (await call('GET', `/records/page?limit=2&sort=title&after=${page['next']}`)).body!;
+    expect(rest['rows'].map((r: { title: string }) => r.title)).toEqual(['C']);
+    expect((await call('GET', '/records/page?limit=500')).status).toBe(400);
+    expect((await call('GET', '/changes?limit=0')).status).toBe(400);
+  });
+
+  it('builds the set once for a site published before it, keeping its published versions', async () => {
+    const { call, addPage, apis, store } = await setup();
+    const old = await addPage('Old');
+    const job = await apis['publishJob']!.add!({ id: crypto.randomUUID(), status: 'requested', requestedAt: '2026-01-01T00:00:00Z' });
+    await apis['publishJob']!.update!(job.id, { status: 'published', position: await store.position() });
+    await apis['page']!.update!(old.id, { title: 'Old, edited later' });
+    await addPage('Newer');
+    const rows = (await call('GET', '/records/page')).body!['rows'] as Array<{ title: string }>;
+    expect(rows.map((r) => r.title)).toEqual(['Old']);
+  });
+
+  it('builds the set again for a log moved to another store without it (ADR 12)', async () => {
+    const before = await setup();
+    await before.addPage('Live');
+    await before.call('POST', '/all');
+    await before.addPage('Draft');
+    const moved = await setup({}, before.store);
+    expect(await moved.titles()).toEqual(['Live']);
+  });
+
+  it('rebuilds the set and queues a build only when the request names the app (ADR 12)', async () => {
+    const { call, addPage, pushed } = await setup();
+    await addPage('Live');
+    await call('POST', '/all');
+    await claimAndFinish(call);
+    expect((await call('POST', '/rebuild')).status).toBe(400);
+    expect((await call('POST', '/rebuild', { confirm: 'rebuild' })).status).toBe(400);
+    const sent = pushed.length;
+    const done = await call('POST', '/rebuild', { confirm: 'Test site' });
+    expect(done.status).toBe(200);
+    expect(pushed.length).toBe(sent + 1);
+    const { changes } = (await call('GET', '/changes?after=0')).body as { changes: Array<{ record: { title: string } | null }> };
+    expect(changes.map((c) => c.record?.title)).toContain('Live');
   });
 });

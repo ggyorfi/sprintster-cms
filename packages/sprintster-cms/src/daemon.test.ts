@@ -88,6 +88,19 @@ describe('connectDaemon', () => {
     ).rejects.toThrow(/s8r daemon/);
   });
 
+  it('tries an image again after a dropped connection, but not after a 404', async () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    const stub = stubFetch({ ...healthy, ['/assets/' + 'a'.repeat(64)]: bytes });
+    let drops = 1;
+    const flaky = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/assets/') && drops-- > 0) throw new TypeError('fetch failed');
+      return stub(input, init);
+    }) as Fetch;
+    const daemon = await connectDaemon({ baseUrl: 'http://d', fetch: flaky });
+    expect((await daemon.asset('a'.repeat(64))).bytes).toEqual(bytes);
+    await expect(daemon.asset('b'.repeat(64))).rejects.toThrow(/404/);
+  });
+
   it('exposes the objects reported by the daemon', async () => {
     const daemon = await connectDaemon({ baseUrl: 'http://d', fetch: stubFetch(healthy) });
     expect(daemon.objects.map((o) => o.name)).toEqual(['settings']);
@@ -108,7 +121,7 @@ describe('connectDaemon', () => {
   it('reads published rows from the publish plugin, and current rows without one (ADR 7)', async () => {
     const published = await connectDaemon({
       baseUrl: 'http://d',
-      fetch: stubFetch({ ...healthy, '/site-settings': { id: 'a', siteTitle: 'Draft' }, '/plugins/publish/records/settings': [{ id: 'a', siteTitle: 'Live' }] }),
+      fetch: stubFetch({ ...healthy, '/site-settings': { id: 'a', siteTitle: 'Draft' }, '/plugins/publish/records/settings': { rows: [{ id: 'a', siteTitle: 'Live' }], next: null } }),
     });
     expect(await published.publishedRows!('settings')).toEqual([{ id: 'a', siteTitle: 'Live' }]);
     const plain = await connectDaemon({ baseUrl: 'http://d', fetch: stubFetch({ ...healthy, '/site-settings': { id: 'a', siteTitle: 'Draft' } }) });
