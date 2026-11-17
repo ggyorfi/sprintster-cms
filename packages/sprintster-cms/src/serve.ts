@@ -1,6 +1,8 @@
 import { serve as listen } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
+import type { Server } from 'node:http';
 import { Hono, type Context } from 'hono';
+import WebSocket, { WebSocketServer } from 'ws';
 import { buildCollections, type Collection } from './collections.js';
 import { loadSiteConfig, type SiteConfig } from './config.js';
 import { loadContent, resolve } from './content.js';
@@ -33,6 +35,33 @@ async function forward(target: string, c: Context): Promise<Response> {
     init.duplex = 'half';
   }
   return fetch(target, init);
+}
+
+// The admin's live socket (core ADR 28) cannot go through fetch, so an upgrade under the api or admin prefix is relayed.
+export function relayUpgrades(server: Server, prefixes: readonly string[], daemonUrl: string): void {
+  const wss = new WebSocketServer({ noServer: true });
+  server.on('upgrade', (request, socket, head) => {
+    const url = new URL(request.url ?? '/', 'http://serve');
+    const prefix = prefixes.find((p) => underPrefix(url.pathname, p));
+    if (prefix === undefined) {
+      socket.destroy();
+      return;
+    }
+    const headers: Record<string, string> = {};
+    for (const name of ['cookie', 'authorization']) {
+      const value = request.headers[name];
+      if (typeof value === 'string') headers[name] = value;
+    }
+    const upstream = new WebSocket(`${daemonUrl.replace(/^http/, 'ws')}${url.pathname.slice(prefix.length)}${url.search}`, { headers });
+    upstream.on('error', () => socket.destroy());
+    upstream.on('open', () =>
+      wss.handleUpgrade(request, socket, head, (client) => {
+        upstream.on('message', (data) => client.send(data.toString()));
+        upstream.on('close', () => client.close());
+        client.on('close', () => upstream.close());
+      }),
+    );
+  });
 }
 
 export function createSiteApp(site: SiteConfig, daemon: Daemon, theme: Theme, media: Media): Hono {
@@ -115,7 +144,7 @@ export async function serve(opts: ServeOptions = {}): Promise<void> {
   const theme = loadTheme(site.theme, root);
   const app = createSiteApp(site, daemon, theme, createMedia(daemon, site, root));
 
-  listen({ fetch: app.fetch, port }, ({ port: bound }) => {
+  const server = listen({ fetch: app.fetch, port }, ({ port: bound }) => {
     console.log(`scms serve on http://127.0.0.1:${bound}`);
     console.log(`  site    /`);
     console.log(`  admin   ${site.server.admin}`);
@@ -123,4 +152,5 @@ export async function serve(opts: ServeOptions = {}): Promise<void> {
     console.log(`  assets  ${site.server.assets}`);
     console.log(`  preview ${site.server.preview}`);
   });
+  relayUpgrades(server as Server, [site.server.api, site.server.admin], daemon.baseUrl);
 }

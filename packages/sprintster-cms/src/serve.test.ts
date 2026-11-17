@@ -41,3 +41,28 @@ describe('scms serve linked files', () => {
     expect(listed).toEqual([]);
   });
 });
+
+describe('scms serve live socket', () => {
+  it('relays the daemon\'s pushes on /admin/log/live and refuses other upgrades', async () => {
+    const { createServer } = await import('node:http');
+    const { WebSocketServer, default: WebSocket } = await import('ws');
+    const { relayUpgrades } = await import('./serve.js');
+    const daemon = new WebSocketServer({ port: 0 });
+    const paths: string[] = [];
+    daemon.on('connection', (ws, req) => {
+      paths.push(req.url ?? '');
+      ws.send(JSON.stringify({ position: 7 }));
+    });
+    const front = createServer();
+    relayUpgrades(front, ['/api', '/admin'], `http://127.0.0.1:${(daemon.address() as { port: number }).port}`);
+    await new Promise<void>((done) => front.listen(0, done));
+    const port = (front.address() as { port: number }).port;
+    const got = await new Promise<string>((done) => new WebSocket(`ws://127.0.0.1:${port}/admin/log/live`).on('message', (d) => done(d.toString())));
+    expect(JSON.parse(got)).toEqual({ position: 7 });
+    expect(paths).toEqual(['/log/live']);
+    const refused = await new Promise<string>((done) => new WebSocket(`ws://127.0.0.1:${port}/elsewhere`).on('error', () => done('refused')));
+    expect(refused).toBe('refused');
+    front.close();
+    daemon.close();
+  });
+});

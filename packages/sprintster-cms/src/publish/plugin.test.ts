@@ -9,7 +9,7 @@ import {
   type PluginObjectApi,
   type PluginRoute,
 } from 'sprintster';
-import { contributedObjects, plugin } from './plugin.js';
+import { contributedObjects, plugin, publishState } from './plugin.js';
 
 const tag = {
   name: 'tag',
@@ -64,6 +64,12 @@ async function setup(pluginConfig: Record<string, unknown> = {}, log: InMemoryEv
   const pushed: unknown[] = [];
   const gui: Array<{ id: string; placement?: string }> = [];
   const columns: Array<{ id: string; values(object: string, ids: string[]): Promise<Record<string, { text: string }>> }> = [];
+  const data = {
+    object: (name: string) => apis[name]!,
+    position: () => store.position(),
+    changesSince: (p: number) => changesSince(store, p),
+    pinnedSince: (set: string, after: number, limit: number) => store.states.pins.since(set, 0, after, limit),
+  };
   const ctx = {
     config: pluginConfig,
     app: config,
@@ -72,12 +78,7 @@ async function setup(pluginConfig: Record<string, unknown> = {}, log: InMemoryEv
     routes: { register: (r: PluginRoute) => routes.push(r) },
     channels: { open: () => ({ send: (m: unknown) => pushed.push(m) }) },
     gui: { action: (a: { id: string }) => gui.push(a), badge: (b: { id: string }) => gui.push(b), column: (c: { id: string }) => columns.push(c) },
-    data: {
-      object: (name: string) => apis[name]!,
-      position: () => store.position(),
-      changesSince: (p: number) => changesSince(store, p),
-      pinnedSince: (set: string, after: number, limit: number) => store.states.pins.since(set, 0, after, limit),
-    },
+    data,
   } as unknown as DaemonPluginContext;
   await plugin.init(ctx);
   const call = async (method: string, path: string, body?: unknown) => {
@@ -91,7 +92,7 @@ async function setup(pluginConfig: Record<string, unknown> = {}, log: InMemoryEv
   const titles = async () => ((await call('GET', '/records/page')).body!['rows'] as Array<{ title: string }>).map((r) => r.title).sort();
   const badge = async (id: string, object = 'page') => (await call('GET', `/records/status?object=${object}&id=${id}`)).body!['text'];
   const pages = async () => (await call('GET', '/records/page')).body!['rows'] as Array<{ id: string; title: string; publishedAt: string; lastPublishedAt: string }>;
-  return { call, addPage, pushed, gui, columns, apis, store, titles, badge, pages };
+  return { call, addPage, pushed, gui, columns, apis, store, data, titles, badge, pages };
 }
 
 async function claimAndFinish(call: (method: string, path: string, body?: unknown) => Promise<{ body: Record<string, any> | null }>) {
@@ -353,5 +354,74 @@ describe('the published set and its change feed (ADR 10)', () => {
     expect(pushed.length).toBe(sent + 1);
     const { changes } = (await call('GET', '/changes?after=0')).body as { changes: Array<{ record: { title: string } | null }> };
     expect(changes.map((c) => c.record?.title)).toContain('Live');
+  });
+});
+
+describe('the publish state kept between calls', () => {
+  it('reads the publication rows once, then only the log position while nothing changes', async () => {
+    const { call, addPage, apis, data } = await setup();
+    await addPage('Home');
+    await call('POST', '/all');
+    await claimAndFinish(call);
+    const list = vi.spyOn(apis['publication']!, 'list');
+    const since = vi.spyOn(data, 'changesSince');
+    await call('GET', '/status');
+    const reads = [list.mock.calls.length, since.mock.calls.length];
+    await call('GET', '/status');
+    await call('GET', '/schedule');
+    expect([list.mock.calls.length, since.mock.calls.length]).toEqual(reads);
+    await addPage('About');
+    expect((await call('GET', '/status')).body!['text']).toBe('1 pending');
+    expect(list.mock.calls.length).toBe(reads[0]);
+  });
+
+  it('matches a fresh read after every kind of change', async () => {
+    const { call, addPage, apis, data } = await setup();
+    const kept = publishState(data);
+    const at = Date.now();
+    const same = async () => {
+      const fresh = publishState(data);
+      expect(await kept.published(at)).toEqual(await fresh.published(at));
+      expect(await kept.jobs()).toEqual(await fresh.jobs());
+    };
+    await same();
+    const home = await addPage('Home');
+    await same();
+    await call('POST', '/all');
+    await same();
+    await claimAndFinish(call);
+    await same();
+    const about = await addPage('About');
+    await apis['page']!.update!(home.id, { title: 'Home, changed' });
+    await same();
+    await call('POST', '/records/publish', { object: 'page', id: about.id, value: new Date(at + 3_600_000).toISOString() });
+    await same();
+    await call('POST', '/records/publish', { object: 'page', id: home.id, value: null });
+    await same();
+    await apis['page']!.remove!(about.id);
+    await same();
+    await apis['page']!.erase!(home.id);
+    await same();
+    await call('POST', '/all');
+    await same();
+  });
+});
+
+describe('the publish state kept across a host restart (core ADR 28)', () => {
+  it('restores the snapshot instead of reading every publication, and stays equal to a fresh read', async () => {
+    const { call, addPage, apis, data } = await setup();
+    const kept = new Map<string, string>();
+    const keep = { get: async (k: string) => kept.get(k) ?? null, put: async (k: string, v: string) => void kept.set(k, v) };
+    const home = await addPage('Home');
+    await call('POST', '/all');
+    await claimAndFinish(call);
+    await publishState({ ...data, keep }).published();
+    await apis['page']!.update!(home.id, { title: 'Home, changed' });
+    const list = vi.spyOn(apis['publication']!, 'list');
+    const woken = publishState({ ...data, keep });
+    const at = Date.now();
+    expect(await woken.published(at)).toEqual(await publishState(data).published(at));
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(await woken.jobs()).toEqual(await publishState(data).jobs());
   });
 });

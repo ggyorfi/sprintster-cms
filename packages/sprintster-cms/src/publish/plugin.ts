@@ -1,4 +1,4 @@
-import { eventTypeNames, MAX_PAGE, type Config, type DaemonPlugin, type PluginData } from 'sprintster';
+import { eventTypeNames, MAX_PAGE, type Config, type DaemonPlugin, type LogChange, type PluginData } from 'sprintster';
 import { z } from 'zod';
 
 export const JOB_OBJECT = 'publishJob';
@@ -107,40 +107,177 @@ const keyOf = (object: string, id: string) => `${object}\u0000${id}`;
 const now = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 const byTime = (a: PublishJob, b: PublishJob) => a.requestedAt.localeCompare(b.requestedAt);
 
+interface Change {
+  object: string;
+  id: string;
+  created: number | null;
+  head: number;
+}
+
 // What is published: the baseline, each record's own row, and, for records changed since the baseline, when they
 // were created (null when before the baseline) and their latest change.
 export interface Published {
   baseline: number;
   rows: Map<string, PublicationRow>;
-  changed: Map<string, { object: string; id: string; created: number | null; head: number }>;
+  changed: Map<string, Change>;
   at: number;
 }
 
+// What published() is derived from, kept between calls and brought up to date from the log after the position it was read at.
+interface Snapshot {
+  position: number;
+  baselineRow: PublicationRow | undefined;
+  baseline: number;
+  rows: Map<string, PublicationRow>;
+  keys: Map<string, string>;
+  changed: Published['changed'];
+  jobs: Map<string, PublishJob>;
+}
+
+// Rewrite events of other records, so a snapshot cannot be patched past them.
+const REWRITES = new Set(['RecordErased', 'RecordRedacted']);
+
 // A site built before ADR 7 was published as a whole at its last build's position, so that is its baseline until the first Publish all.
-async function legacyBaseline(data: PluginData): Promise<number> {
-  const built = (await jobs(data)).filter((j) => j.status === 'published' && typeof j.position === 'number');
+function baselineOf(s: Snapshot): number {
+  if (s.baselineRow !== undefined) return s.baselineRow.position;
+  const built = [...s.jobs.values()].filter((j) => j.status === 'published' && typeof j.position === 'number');
   return Math.max(0, ...built.map((j) => j.position as number));
 }
 
-export async function published(data: PluginData, at: number = Date.now()): Promise<Published> {
-  const rows = new Map<string, PublicationRow>();
-  let baselineRow: PublicationRow | undefined;
-  for (const r of (await data.object(PUBLICATION_OBJECT).list()) as unknown as PublicationRow[]) {
-    if (r.object === BASELINE) baselineRow = r;
-    else rows.set(keyOf(r.object, r.record), r);
+function setRow(s: Snapshot, r: PublicationRow): void {
+  if (r.object === BASELINE) {
+    s.baselineRow = r;
+    return;
   }
-  const baseline = baselineRow?.position ?? (await legacyBaseline(data));
-  const changed: Published['changed'] = new Map();
-  for (const c of await data.changesSince(baseline)) {
-    if (OWN_OBJECTS.has(c.object)) continue;
-    const key = keyOf(c.object, c.id);
-    const seen = changed.get(key);
-    const created = c.event === eventTypeNames(c.object).added ? c.position : null;
-    if (seen === undefined) changed.set(key, { object: c.object, id: c.id, created, head: c.position });
-    else seen.head = Math.max(seen.head, c.position);
-  }
-  return { baseline, rows, changed, at };
+  const key = keyOf(r.object, r.record);
+  const old = s.keys.get(r.id);
+  if (old !== undefined && old !== key) s.rows.delete(old);
+  s.rows.set(key, r);
+  s.keys.set(r.id, key);
 }
+
+function dropRow(s: Snapshot, id: string): void {
+  if (s.baselineRow?.id === id) s.baselineRow = undefined;
+  const key = s.keys.get(id);
+  if (key === undefined) return;
+  s.rows.delete(key);
+  s.keys.delete(id);
+}
+
+function addChange(s: Snapshot, c: LogChange): void {
+  if (OWN_OBJECTS.has(c.object)) return;
+  const key = keyOf(c.object, c.id);
+  const seen = s.changed.get(key);
+  const created = c.event === eventTypeNames(c.object).added ? c.position : null;
+  if (seen === undefined) s.changed.set(key, { object: c.object, id: c.id, created, head: c.position });
+  else s.changed.set(key, { ...seen, head: Math.max(seen.head, c.position) });
+}
+
+const live = <T>(r: unknown): T | null => (r === null || (r as { removed?: boolean }).removed === true ? null : (r as T));
+
+const emptySnapshot = (position: number): Snapshot => ({ position, baselineRow: undefined, baseline: 0, rows: new Map(), keys: new Map(), changed: new Map(), jobs: new Map() });
+
+async function loadSnapshot(data: PluginData): Promise<Snapshot> {
+  const s = emptySnapshot(await data.position());
+  for (const r of (await data.object(PUBLICATION_OBJECT).list()) as unknown as PublicationRow[]) setRow(s, r);
+  for (const j of (await data.object(JOB_OBJECT).list()) as unknown as PublishJob[]) s.jobs.set(j.id, j);
+  s.baseline = baselineOf(s);
+  for (const c of await data.changesSince(s.baseline)) addChange(s, c);
+  return s;
+}
+
+// Core ADR 28: kept across a Durable Object's hibernation, so waking reads a few rows instead of every publication.
+const KEPT = 'snapshot';
+const KEPT_VERSION = 1;
+
+function keptText(s: Snapshot): string {
+  const { position, baselineRow, baseline } = s;
+  return JSON.stringify({ v: KEPT_VERSION, position, baselineRow: baselineRow ?? null, baseline, rows: [...s.rows.values()], changed: [...s.changed.values()], jobs: [...s.jobs.values()] });
+}
+
+function fromKept(text: string): Snapshot | undefined {
+  const k = JSON.parse(text) as { v: number; position: number; baselineRow: PublicationRow | null; baseline: number; rows: PublicationRow[]; changed: Change[]; jobs: PublishJob[] };
+  if (k.v !== KEPT_VERSION) return undefined;
+  const s = emptySnapshot(k.position);
+  s.baselineRow = k.baselineRow ?? undefined;
+  s.baseline = k.baseline;
+  for (const r of k.rows) setRow(s, r);
+  for (const c of k.changed) s.changed.set(keyOf(c.object, c.id), c);
+  for (const j of k.jobs) s.jobs.set(j.id, j);
+  return s;
+}
+
+// The publication rows and jobs are read once; after that a call reads the log position and only what was appended since.
+export function publishState(data: PluginData) {
+  let snapshot: Snapshot | undefined;
+  let queue: Promise<unknown> = Promise.resolve();
+
+  async function update(s: Snapshot): Promise<Snapshot> {
+    const position = await data.position();
+    if (position === s.position) return s;
+    if (position < s.position) return loadSnapshot(data);
+    const rows = new Set<string>();
+    const jobs = new Set<string>();
+    for (const c of await data.changesSince(s.position)) {
+      if (REWRITES.has(c.event)) return loadSnapshot(data);
+      if (c.object === PUBLICATION_OBJECT) rows.add(c.id);
+      else if (c.object === JOB_OBJECT) jobs.add(c.id);
+      else addChange(s, c);
+      s.position = Math.max(s.position, c.position);
+    }
+    for (const id of rows) {
+      const r = live<PublicationRow>(await data.object(PUBLICATION_OBJECT).get(id));
+      if (r === null) dropRow(s, id);
+      else setRow(s, r);
+    }
+    for (const id of jobs) {
+      const j = live<PublishJob>(await data.object(JOB_OBJECT).get(id));
+      if (j === null) s.jobs.delete(id);
+      else s.jobs.set(id, j);
+    }
+    return baselineOf(s) === s.baseline ? s : loadSnapshot(data);
+  }
+
+  let kept: number | undefined;
+
+  async function restore(): Promise<Snapshot | undefined> {
+    const text = await data.keep?.get(KEPT);
+    const s = text == null ? undefined : fromKept(text);
+    kept = s?.position;
+    return s;
+  }
+
+  async function refresh(): Promise<Snapshot> {
+    const s = snapshot ?? (await restore());
+    snapshot = s === undefined ? await loadSnapshot(data) : await update(s);
+    if (data.keep !== undefined && snapshot.position !== kept) {
+      await data.keep.put(KEPT, keptText(snapshot));
+      kept = snapshot.position;
+    }
+    return snapshot;
+  }
+
+  // One at a time, so two requests never patch the snapshot together.
+  function current(): Promise<Snapshot> {
+    const next = queue.then(refresh);
+    queue = next.catch(() => {
+      snapshot = undefined;
+    });
+    return next;
+  }
+
+  return {
+    async published(at: number = Date.now()): Promise<Published> {
+      const s = await current();
+      return { baseline: s.baseline, rows: new Map(s.rows), changed: new Map(s.changed), at };
+    },
+    async jobs(): Promise<PublishJob[]> {
+      return [...(await current()).jobs.values()].sort(byTime);
+    },
+  };
+}
+
+export type PublishState = ReturnType<typeof publishState>;
 
 // ADR 9: a schedule holds while nothing changed after the position it was made at; any edit voids it.
 function schedule(p: Published, object: string, id: string): { at: string; position: number; due: boolean } | null {
@@ -210,19 +347,13 @@ function referencesOf(app: Config, object: string, record: Record<string, unknow
   return out;
 }
 
-async function jobs(data: PluginData): Promise<PublishJob[]> {
-  return ((await data.object(JOB_OBJECT).list()) as unknown as Array<PublishJob & { removed?: boolean }>)
-    .filter((j) => j.removed !== true)
-    .sort(byTime);
-}
-
-export async function status(data: PluginData): Promise<{ text: string; tone: 'info' | 'warning' | 'success' | 'danger' }> {
-  const all = await jobs(data);
+export async function status(state: PublishState): Promise<{ text: string; tone: 'info' | 'warning' | 'success' | 'danger' }> {
+  const all = await state.jobs();
   const active = all.find((j) => j.status === 'requested' || j.status === 'building');
   if (active !== undefined) return { text: active.status === 'building' ? 'Publishing…' : 'Publish queued', tone: 'info' };
   const last = all.at(-1);
   if (last?.status === 'failed') return { text: `Publish failed: ${last.message ?? 'see Publishing'}`, tone: 'danger' };
-  const p = await published(data);
+  const p = await state.published();
   if (p.baseline === 0 && ![...p.rows.values()].some((r) => !r.object.startsWith('#'))) return { text: 'Not published yet', tone: 'warning' };
   const states = [...p.changed.values()].map((c) => recordState(p, c.object, c.id));
   const pending = states.filter((s) => s === 'pending').length;
@@ -274,6 +405,7 @@ export const plugin: DaemonPlugin = {
     const hidden = new Set(settings.private ?? []);
     const publishable = (object: string) => !OWN_OBJECTS.has(object) && !hidden.has(object) && app.objects.some((o) => o.name === object);
     const rebuildPhrase = app.title ?? 'rebuild';
+    const state = publishState(ctx.data);
     const pin = async (object: string, id: string, position: number) => ctx.data.object(object).pin?.(PUBLISHED_SET, id, position);
 
     // A site published before ADR 10 has no set yet, and one moved by its log alone (s8r export) has lost it: every
@@ -339,7 +471,7 @@ export const plugin: DaemonPlugin = {
     // ADR 7 and 9: the record, and every record it points at that was never published, transitively, now or on a date.
     async function publishRecord(object: string, id: string, when: string | null, actor: string | undefined): Promise<string[]> {
       const position = await ctx.data.position();
-      const p = await published(ctx.data);
+      const p = await state.published();
       const also: string[] = [];
       const seen = new Set<string>();
       const visit = async (o: string, i: string, root: boolean): Promise<void> => {
@@ -363,7 +495,7 @@ export const plugin: DaemonPlugin = {
     const agents = ctx.channels.open('jobs');
 
     async function requestPublish(): Promise<{ queued: boolean; job: PublishJob }> {
-      const active = (await jobs(ctx.data)).find((j) => j.status === 'requested' || j.status === 'building');
+      const active = (await state.jobs()).find((j) => j.status === 'requested' || j.status === 'building');
       if (active !== undefined) return { queued: false, job: active };
       const job = (await api().add!({ id: crypto.randomUUID(), status: 'requested', requestedAt: now() })) as unknown as PublishJob;
       agents.send({ type: 'job' });
@@ -398,7 +530,7 @@ export const plugin: DaemonPlugin = {
       path: '/records/status',
       handler: async (request) => {
         const url = new URL(request.url);
-        return Response.json(stateValue(await published(ctx.data), url.searchParams.get('object') ?? '', url.searchParams.get('id') ?? ''));
+        return Response.json(stateValue(await state.published(), url.searchParams.get('object') ?? '', url.searchParams.get('id') ?? ''));
       },
     });
 
@@ -412,7 +544,7 @@ export const plugin: DaemonPlugin = {
         const query = ListQuery.safeParse(Object.fromEntries(new URL(request.url).searchParams));
         if (!query.success) return Response.json({ code: 'bad_request', message: query.error.message }, { status: 400 });
         const { fields, ...rest } = query.data;
-        const p = await published(ctx.data);
+        const p = await state.published();
         await ensureSet(p);
         const queryPinned = ctx.data.object(object).queryPinned;
         if (queryPinned === undefined) return Response.json({ code: 'not_found', message: `'${object}' keeps no published versions` }, { status: 404 });
@@ -437,7 +569,7 @@ export const plugin: DaemonPlugin = {
         if (!Number.isInteger(after) || after < 0 || !Number.isInteger(limit) || limit < 1 || limit > MAX_PAGE) {
           return Response.json({ code: 'bad_request', message: `after must be a sequence number, limit 1 to ${MAX_PAGE}` }, { status: 400 });
         }
-        const p = await published(ctx.data);
+        const p = await state.published();
         await ensureSet(p);
         const { pins, next } = await ctx.data.pinnedSince(PUBLISHED_SET, after, limit);
         const changes = pins
@@ -457,12 +589,12 @@ export const plugin: DaemonPlugin = {
       method: 'GET',
       path: '/schedule',
       handler: async () => {
-        const p = await published(ctx.data);
+        const p = await state.published();
         const dates = [...p.rows.values()].flatMap((r) => {
           const s = schedule(p, r.object, r.record);
           return s === null ? [] : [s.at];
         });
-        const starts = (await jobs(ctx.data)).filter((j) => j.status === 'published' && j.startedAt !== null).map((j) => j.startedAt as string);
+        const starts = (await state.jobs()).filter((j) => j.status === 'published' && j.startedAt !== null).map((j) => j.startedAt as string);
         return Response.json({ dates, lastBuilt: starts.sort().at(-1) ?? null });
       },
     });
@@ -473,7 +605,7 @@ export const plugin: DaemonPlugin = {
       handler: async (request) => {
         const actor = actorOf(request);
         const position = await ctx.data.position();
-        const p = await published(ctx.data);
+        const p = await state.published();
         await ensureSet(p);
         const waiting = [...new Set([...p.changed.values(), ...[...p.rows.values()].map((r) => ({ object: r.object, id: r.record }))].map((c) => keyOf(c.object, c.id)))]
           .map((k) => k.split('\u0000') as [string, string])
@@ -492,7 +624,7 @@ export const plugin: DaemonPlugin = {
       handler: async (request) => {
         const confirm = ((await request.json().catch(() => null)) as { confirm?: unknown } | null)?.confirm;
         if (confirm !== rebuildPhrase) return Response.json({ code: 'bad_request', message: `confirm with { "confirm": "${rebuildPhrase}" }` }, { status: 400 });
-        await ensureSet(await published(ctx.data), true);
+        await ensureSet(await state.published(), true);
         const { queued } = await requestPublish();
         console.log(`publish: published set rebuilt by ${actorOf(request) ?? 'an unnamed caller'}`);
         return Response.json({ message: `The published set is rebuilt. ${updates(queued)}` });
@@ -525,7 +657,7 @@ export const plugin: DaemonPlugin = {
         handler: async (request) => {
           const on = !(await isOn());
           await ctx.data.object(object).update!(object, { [property]: on }, actorOf(request));
-          await publishNow(await published(ctx.data), object, object, await ctx.data.position(), actorOf(request));
+          await publishNow(await state.published(), object, object, await ctx.data.position(), actorOf(request));
           const { queued } = await requestPublish();
           const what = on ? 'The site goes offline' : 'The site comes back online';
           return Response.json({ message: `${what} with ${queued ? 'this publish' : 'the publish already queued'}.` });
@@ -541,16 +673,16 @@ export const plugin: DaemonPlugin = {
       });
     }
 
-    ctx.routes.register({ method: 'GET', path: '/status', handler: async () => Response.json(await status(ctx.data)) });
+    ctx.routes.register({ method: 'GET', path: '/status', handler: async () => Response.json(await status(state)) });
 
     // The build agent takes the oldest request. It builds what is published when it reads (ADR 7), so a job keeps no position.
     ctx.routes.register({
       method: 'POST',
       path: '/jobs/claim',
       handler: async () => {
-        const next = (await jobs(ctx.data)).find((j) => j.status === 'requested');
+        const next = (await state.jobs()).find((j) => j.status === 'requested');
         if (next === undefined) return new Response(null, { status: 204 });
-        const p = await published(ctx.data);
+        const p = await state.published();
         await ensureSet(p);
         await applyDueSchedules(p);
         const job = await api().update!(next.id, { status: 'building', startedAt: now() });
@@ -574,7 +706,7 @@ export const plugin: DaemonPlugin = {
     });
 
     const content = app.objects.filter((o) => publishable(o.name)).map((o) => o.name);
-    ctx.gui.badge({ id: 'status', route: '/status', refresh: 10 });
+    ctx.gui.badge({ id: 'status', route: '/status' });
     ctx.gui.action({
       id: 'publish',
       label: 'Publish all',
@@ -588,7 +720,7 @@ export const plugin: DaemonPlugin = {
       width: 11,
       objects: content,
       values: async (object, ids) => {
-        const p = await published(ctx.data);
+        const p = await state.published();
         return Object.fromEntries(ids.map((id) => [id, stateValue(p, object, id)]));
       },
     });
