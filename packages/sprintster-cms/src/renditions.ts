@@ -90,9 +90,11 @@ export function parseRenditionName(name: string): RenditionKey | null {
   return effective(key) as RenditionKey;
 }
 
-export function sourceFormat(contentType: string): 'jpg' | 'png' | null {
+// jpg and png sources keep their own format as the <img> fallback; webp, avif and gif sources fall back to png or jpg by transparency.
+export function sourceFormat(contentType: string): 'jpg' | 'png' | 'converted' | null {
   if (contentType === 'image/jpeg') return 'jpg';
   if (contentType === 'image/png') return 'png';
+  if (contentType === 'image/webp' || contentType === 'image/avif' || contentType === 'image/gif') return 'converted';
   return null;
 }
 
@@ -168,6 +170,8 @@ export interface SourceProbe {
   width: number;
   height: number;
   format: 'jpg' | 'png' | null;
+  // Set for converted sources; an animated one is kept as it is, since a rendition would keep only its first frame.
+  animated?: boolean;
 }
 
 export interface Rung {

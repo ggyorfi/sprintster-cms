@@ -65,7 +65,7 @@ const pageObject = {
       title: 'Page',
       fields: [
         { property: 'title', placeholder: 'e.g. About us' },
-        { property: 'slug', placeholder: 'e.g. about' },
+        { property: 'slug', placeholder: 'e.g. about', fillFrom: 'title' },
         { property: 'status' },
         { property: 'body' },
         { property: 'parent' },
@@ -125,7 +125,7 @@ const postObject = {
       title: 'Post',
       fields: [
         { property: 'title', placeholder: 'e.g. Hello world' },
-        { property: 'slug', placeholder: 'e.g. hello-world' },
+        { property: 'slug', placeholder: 'e.g. hello-world', fillFrom: 'title' },
         { property: 'status' },
         { property: 'excerpt', rows: 2, placeholder: 'Short summary for listings' },
         { property: 'cover' },
@@ -169,7 +169,7 @@ const categoryObject = {
       title: 'Category',
       fields: [
         { property: 'name', placeholder: 'e.g. Engineering' },
-        { property: 'slug', placeholder: 'e.g. engineering' },
+        { property: 'slug', placeholder: 'e.g. engineering', fillFrom: 'name' },
         { property: 'description', rows: 3 },
       ],
     },
@@ -206,7 +206,7 @@ const tagObject = {
       title: 'Tag',
       fields: [
         { property: 'name', placeholder: 'e.g. release-notes' },
-        { property: 'slug', placeholder: 'e.g. release-notes' },
+        { property: 'slug', placeholder: 'e.g. release-notes', fillFrom: 'name' },
       ],
     },
   ],

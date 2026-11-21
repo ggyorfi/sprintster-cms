@@ -143,7 +143,7 @@ export function createViews(ctx: ViewContext) {
       );
       if (props.length === 0) continue;
       const hits = (content.rows.get(c.object) ?? []).filter((r) => props.some((p) => idsOf(r[p.name]).includes(row.id)));
-      if (hits.length > 0) out[c.object] = hits.map((r) => view(c.object, r, 1));
+      if (hits.length > 0) out[c.object] = hits.map((r) => view(c.object, r));
     }
     return out;
   }

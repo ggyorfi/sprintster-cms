@@ -28,6 +28,12 @@ export interface Media {
 }
 
 const PROBES_FILE = 'probes.json';
+
+// Probes from before converted sources were measured say only `format: null`; those are measured again once.
+function stale(probe: SourceProbe | undefined, recorded: unknown): boolean {
+  if (probe === undefined) return true;
+  return probe.format === null && probe.animated === undefined && typeof recorded === 'string' && sourceFormat(recorded) === 'converted';
+}
 const PROBE_BATCH = 8;
 const SAVE_EVERY = 200;
 const RENDITIONS_DIR = 'renditions';
@@ -71,11 +77,14 @@ export function createMedia(daemon: Daemon, site: SiteConfig, root: string): Med
     if (format === null) return { width: 0, height: 0, format: null };
     // An image sharp cannot read is shown as it is, like a file it cannot resize, rather than failing the build.
     try {
-      const { width, height } = (await sharp(asset.bytes).metadata()).autoOrient;
-      return { width, height, format };
+      const meta = await sharp(asset.bytes).metadata();
+      const { width, height } = meta.autoOrient;
+      if (format !== 'converted') return { width, height, format };
+      if ((meta.pages ?? 1) > 1) return { width: 0, height: 0, format: null, animated: true };
+      return { width, height, format: meta.hasAlpha ? 'png' : 'jpg', animated: false };
     } catch (err) {
       console.warn(`image ${hash} cannot be read, shown without renditions: ${err instanceof Error ? err.message : String(err)}`);
-      return { width: 0, height: 0, format: null };
+      return { width: 0, height: 0, format: null, ...(format === 'converted' ? { animated: false } : {}) };
     }
   }
 
@@ -95,7 +104,7 @@ export function createMedia(daemon: Daemon, site: SiteConfig, root: string): Med
       for (const asset of content.assets) {
         const file = fileOf(asset);
         const hash = file?.['hash'];
-        if (typeof hash === 'string' && !known.has(hash)) missing.set(hash, file?.['contentType']);
+        if (typeof hash === 'string' && stale(known.get(hash), file?.['contentType'])) missing.set(hash, file?.['contentType']);
       }
       if (missing.size > 0) {
         progress?.say(`measuring ${missing.size} new images`);

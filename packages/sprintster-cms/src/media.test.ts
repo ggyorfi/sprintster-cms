@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
@@ -100,6 +100,35 @@ describe('createMedia', () => {
     await renderAndFetch(fakeDaemon(blobs), contentOf([record('a1', hashA), record('b1', hashB)]), 'a1');
     const probes = JSON.parse(readFileSync(join(root, '.scms/cache/probes.json'), 'utf8'));
     expect(probes[hashB]).toEqual({ width: 0, height: 0, format: null });
+  });
+
+  it('falls back to jpg for an opaque webp, png for a transparent one, and keeps an animated gif as it is', async () => {
+    const hashC = 'c'.repeat(64);
+    const hashD = 'd'.repeat(64);
+    blobs.set(hashA, new Uint8Array(await sharp({ create: { width: 1000, height: 500, channels: 3, background: '#4a7' } }).webp().toBuffer()));
+    blobs.set(hashC, new Uint8Array(await sharp({ create: { width: 1000, height: 500, channels: 4, background: '#4a78' } }).webp().toBuffer()));
+    // Two 1x1 frames: sharp writes a single-frame GIF from anything it creates.
+    blobs.set(hashD, new Uint8Array(Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH/C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAAAQABAAACAkQBACH5BAAKAAAALAAAAAABAAEAAAICTAEAOw==', 'base64')));
+    const typed = (id: string, hash: string, contentType: string): Row => ({ id, file: { hash, contentType } });
+    const seam = await createMedia(fakeDaemon(blobs), site, root).seam(
+      contentOf([typed('a1', hashA, 'image/webp'), typed('c1', hashC, 'image/webp'), typed('d1', hashD, 'image/gif')]),
+    );
+    expect(seam({ assetId: 'a1', alt: '', transform: {} })?.src).toBe('/assets/aaaaaaaaaaaaaaaa-w800.jpg');
+    expect(seam({ assetId: 'c1', alt: '', transform: {} })?.src).toBe('/assets/cccccccccccccccc-w800.png');
+    expect(seam({ assetId: 'd1', alt: '', transform: {} })?.srcset).toBeUndefined();
+    const probes = JSON.parse(readFileSync(join(root, '.scms/cache/probes.json'), 'utf8'));
+    expect(probes[hashD]).toEqual({ width: 0, height: 0, format: null, animated: true });
+  });
+
+  it('measures a converted source again when an older build recorded it as one without renditions', async () => {
+    const content = contentOf([{ id: 'a1', file: { hash: hashA, contentType: 'image/webp' } }]);
+    mkdirSync(join(root, '.scms/cache'), { recursive: true });
+    writeFileSync(join(root, '.scms/cache/probes.json'), JSON.stringify({ [hashA]: { width: 0, height: 0, format: null } }));
+    const daemon = fakeDaemon(blobs);
+    expect((await createMedia(daemon, site, root).seam(content))({ assetId: 'a1', alt: '', transform: {} })?.srcset).toBeDefined();
+    const again = fakeDaemon(blobs);
+    await createMedia(again, site, root).seam(content);
+    expect(again.fetched).toEqual([]);
   });
 
   it('produces no files for an unreferenced library entry, and refuses a name no page asked for', async () => {

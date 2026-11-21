@@ -102,10 +102,13 @@ describe('renditionName', () => {
 });
 
 describe('sourceFormat', () => {
-  it('maps the fallback formats and nothing else', () => {
+  it('maps the fallback formats and marks the formats converted to one', () => {
     expect(sourceFormat('image/jpeg')).toBe('jpg');
     expect(sourceFormat('image/png')).toBe('png');
-    expect(sourceFormat('image/gif')).toBeNull();
+    expect(sourceFormat('image/gif')).toBe('converted');
+    expect(sourceFormat('image/webp')).toBe('converted');
+    expect(sourceFormat('image/avif')).toBe('converted');
+    expect(sourceFormat('image/svg+xml')).toBeNull();
   });
 });
 

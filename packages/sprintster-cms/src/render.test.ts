@@ -137,6 +137,7 @@ describe('record views', () => {
     const exhibition = views.full('exhibition', rows.exhibition[0]!);
     expect(exhibition.title).toBeNull();
     expect(exhibition.referencedBy!['work']!.map((w) => [w.title, w.url])).toEqual([['Mask', '/works/mask/']]);
+    expect(exhibition.referencedBy!['work']![0]!['exhibitions']).toEqual([expect.objectContaining({ url: '/exhibitions/show/' })]);
     expect(views.full('work', rows.work[0]!)['exhibitions']).toEqual([expect.objectContaining({ slug: 'show', url: '/exhibitions/show/' })]);
   });
 });

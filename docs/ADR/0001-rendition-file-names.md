@@ -63,8 +63,11 @@ typo without a word.
   change the pixels: a height is present and the fit is `cover`.
 - `bg<hex>`: the background, expanded to 6 or 8 lowercase digits, present
   whenever authored.
-- `ext`: `avif`, `webp`, `jpg` or `png`. The last two are the source's own
-  format, the resized fallback for browsers without the modern formats.
+- `ext`: `avif`, `webp`, `jpg` or `png`. The last two are the resized
+  fallback for browsers without the modern formats: the source's own format
+  for a jpg or png source, `png` for a transparent webp, avif or gif source
+  and `jpg` for an opaque one. An animated gif or webp gets no renditions and
+  is served as it is.
 
 A key that cannot change the pixels is dropped from the name, so
 `fit=inside` without a height or `gravity=top` under `contain` names the same
