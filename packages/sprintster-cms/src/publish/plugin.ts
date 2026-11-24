@@ -106,6 +106,8 @@ interface PublicationRow {
 const keyOf = (object: string, id: string) => `${object}\u0000${id}`;
 const now = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 const byTime = (a: PublishJob, b: PublishJob) => a.requestedAt.localeCompare(b.requestedAt);
+// A claimed build with no report after this long is taken as lost (the agent stopped), so it no longer blocks publishing.
+const BUILD_TIMEOUT_MINUTES = 60;
 
 interface Change {
   object: string;
@@ -494,7 +496,20 @@ export const plugin: DaemonPlugin = {
     // Agents listen here and claim over HTTP when told; a push carries no job, so a missed one costs nothing.
     const agents = ctx.channels.open('jobs');
 
+    async function failLostBuilds(): Promise<void> {
+      const cutoff = Date.now() - BUILD_TIMEOUT_MINUTES * 60_000;
+      for (const job of await state.jobs()) {
+        if (job.status !== 'building' || job.startedAt === null || Date.parse(job.startedAt) > cutoff) continue;
+        await api().update!(job.id, {
+          status: 'failed',
+          finishedAt: now(),
+          message: `no report from the build agent within ${BUILD_TIMEOUT_MINUTES} minutes; it may have stopped. Publish again.`,
+        });
+      }
+    }
+
     async function requestPublish(): Promise<{ queued: boolean; job: PublishJob }> {
+      await failLostBuilds();
       const active = (await state.jobs()).find((j) => j.status === 'requested' || j.status === 'building');
       if (active !== undefined) return { queued: false, job: active };
       const job = (await api().add!({ id: crypto.randomUUID(), status: 'requested', requestedAt: now() })) as unknown as PublishJob;
@@ -673,7 +688,14 @@ export const plugin: DaemonPlugin = {
       });
     }
 
-    ctx.routes.register({ method: 'GET', path: '/status', handler: async () => Response.json(await status(state)) });
+    ctx.routes.register({
+      method: 'GET',
+      path: '/status',
+      handler: async () => {
+        await failLostBuilds();
+        return Response.json(await status(state));
+      },
+    });
 
     // The build agent takes the oldest request. It builds what is published when it reads (ADR 7), so a job keeps no position.
     ctx.routes.register({

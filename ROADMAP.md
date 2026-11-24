@@ -124,6 +124,9 @@ does the build and deploy. Built on sprintster's plugin extension points
       badge counting records changed since the last publish, a `publishJob`
       history, and the claim and done routes an agent uses. The log position is
       recorded when a job is claimed, before the build reads content.
+      A claimed job with no report after 60 minutes is marked failed, so a
+      stopped agent no longer blocks the next publish; a late report still
+      lands.
 - [x] **2. The build agent.** `scms agent` keeps a WebSocket open to each
       app (sprintster plugin channels, hibernating on Cloudflare), claims jobs
       over HTTP on every push and every reconnect, runs `scms build` and the

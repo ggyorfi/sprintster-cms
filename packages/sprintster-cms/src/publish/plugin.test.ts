@@ -100,6 +100,31 @@ async function claimAndFinish(call: (method: string, path: string, body?: unknow
   await call('POST', `/jobs/${body!['job'].id}/done`, { ok: true });
 }
 
+describe('a build the agent never reports on', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('fails after the timeout, so a new publish can queue', async () => {
+    const { call } = await setup();
+    await call('POST', '/requests');
+    await call('POST', '/jobs/claim');
+    vi.useFakeTimers({ toFake: ['Date'], now: Date.now() + 59 * 60_000 });
+    expect((await call('GET', '/status')).body!['text']).toBe('Publishing…');
+    vi.setSystemTime(Date.now() + 2 * 60_000);
+    expect((await call('GET', '/status')).body!['text']).toMatch(/^Publish failed: no report from the build agent/);
+    expect((await call('POST', '/requests')).status).toBe(201);
+  });
+
+  it('still takes a late report', async () => {
+    const { call } = await setup();
+    await call('POST', '/requests');
+    const { body } = await call('POST', '/jobs/claim');
+    vi.useFakeTimers({ toFake: ['Date'], now: Date.now() + 61 * 60_000 });
+    await call('GET', '/status');
+    await call('POST', `/jobs/${body!['job'].id}/done`, { ok: true });
+    expect((await call('GET', '/status')).body!['text']).not.toMatch(/failed/);
+  });
+});
+
 describe('publish plugin', () => {
   it('switches maintenance mode from the Maintenance page and publishes each change', async () => {
     const { call, gui, pushed } = await setup({ maintenance: 'settings.maintenance' });
